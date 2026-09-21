@@ -8,25 +8,23 @@ import { bash,readfile } from "./functions";
 import type {Tool,ToolResult} from "./types"
 import { bash_t,read_t, write_t} from "./toolabs";
 import { hostname } from "os";
-const MAIN_PROMPT="your are a software developer."
+
 let mp =new Map<string,Tool>();
 mp.set(bashtool.name,bash_t);
 mp.set(readtool.name,read_t);
 mp.set(writetool.name,write_t);
-async function main() {
+export async function main(input:string) {
 
     // Add the initial user message to history
     const userStep: UserInputStep = {
         type: "user_input",
-        content: [{text:"read the questions from qns.md file and write answer inside that file",type:"text"}]
+        content: [{text:input,type:"text"}]
     };
 
     history.push(userStep);
 
 
     while (true) {
-
-        
         const response = await client.interactions.create({
             model: "gemini-3.5-flash-lite",
             input: history,
@@ -71,8 +69,8 @@ async function main() {
                                 output: message
                             }
                         };
-                       // history.push(resultStep);
-                       // console.error("Tool failed", message);
+                        history.push(resultStep);
+                        console.error("Tool failed", message);
 
                     }
                 }
@@ -92,4 +90,3 @@ async function main() {
 }
 
 
-main();

@@ -1,36 +1,43 @@
-export interface Toolcall{
-  
-        id: string,
-        call_id: string,
-        type: "function_call",
-        name: string,
-        arguments: string
-    
-}
-export type Tooldef={
-  type:"function"
-    name:string,
-    description:string,
-    parameters:{
-        type:"object",
-        properties:Record<string,{
-            type:"string",
-            description:string
-        }>,
-        required:string[]
+import { Type } from "@google/genai";
+import { properties } from "zod";
+import {z } from "zod"
+import type { Tooldef } from "./types";
+export const bashtool:Tooldef = {
+    type: "function",
+    name: "Bash_tool",
+    description: "execute the commands in the commands property",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            commands: { type: Type.STRING, description: "bash commands" },
+        },
+        required: ["commands"],
+    },
+} as const;
 
-    },strict: boolean
-};
-export const bashTooldef:Tooldef={
-  type:"function",
-    name:"bash",
-    description:"exectute bash commands ",
+export const readtool:Tooldef={
+    type:"function",
+    name:"Read_File",
+    description:"read the contents of the file from the path in the input",
     parameters:{
-        type:"object",
+        type:Type.OBJECT,
         properties:{
-            command:{
-                type:"string",
-                description:"contains the bash command to execute"
-        }
-    },required:["command"]},strict:true
-}
+            path:{type:Type.STRING,description:"input path"},
+        },
+        required:["path"],
+    },
+    
+} as const;
+export const writetool:Tooldef={
+    type:"function",
+    name:"Write_File",
+    description:"write contents into the file",
+    parameters:{
+        type:Type.OBJECT,
+        properties:{
+            path:{type:Type.STRING,description:"path"},
+        },
+        required:["path"],
+    },
+    
+} as const;

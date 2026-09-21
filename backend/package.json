@@ -1,5 +1,5 @@
 {
-  "name": "agent",
+  "name": "backend",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -10,14 +10,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@google/genai": "^2.21.0",
-    "@types/cors": "^2.8.19",
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
-    "child_process": "^1.0.2",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "gemini": "^7.5.2",
-    "openai": "^7.5.0",
-    "zod": "^4.6.5"
+    "bcrypt": "^6.0.0",
+    "express": "^5.2.1"
   }
 }
