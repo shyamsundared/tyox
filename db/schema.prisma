@@ -1,0 +1,46 @@
+// use prisma-8
+
+
+
+model User{
+  id String @id @default(autoincrement())
+  projects Project[]
+  username String
+  password String
+  createdAt   TimestamptzString @default(now())
+}
+model Project{
+id String @id @default(autoincrement())
+owner User @relation(fields:[userid],references:[id])
+userid Int
+conversation_history ConversationHistory[]
+title String
+createdAt TimestamptzString @default(now())
+updatedAt TimestamptzString @default(now())
+initialPrompt String
+}
+model ConversationHistory{
+  id String @id @default(autoincrement())
+  project Project @relation(fields:[projectId],references:[id])
+  projectId Int 
+  Content String
+  type ConversationType 
+  From  MessageFrom
+  createdAt TimestamptzString @default(now())
+  updatedAt TimestamptzString @default(now())
+  toolcall Toolcall
+}
+enum MessageFrom{
+  USER 
+  ASSISTANT
+}
+enum Toolcall{
+  READ_FILE
+  WRITE_FILE
+  DELETE_FILE
+  UPDATE_FILE
+}
+enum ConversationType{
+  TOOL_CALL
+  TEXT_MESSAGE
+}

@@ -1,0 +1,10 @@
+db/contract.json linguist-generated
+db/contract.d.ts linguist-generated
+db/ops.json linguist-generated
+db/migration.json linguist-generated
+migrations/snapshots/**/contract.json linguist-generated
+migrations/snapshots/**/contract.d.ts linguist-generated
+contract.json linguist-generated
+contract.d.ts linguist-generated
+ops.json linguist-generated
+migration.json linguist-generated
