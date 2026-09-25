@@ -1,10 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
-import { bashtool, readtool, writetool } from "./tooldefinition";
+import { bashtool, qnatool, readtool, writetool } from "./tooldefinition";
 
 import { exec } from "child_process";
 import type{UserInputStep,FunctionCallStep,FunctionResultStep,endcall} from"./types"
 import {client,history} from "./types"
-import { bash,readfile } from "./functions";
+import { bash,qna_fn,readfile } from "./functions";
 import type {Tool,ToolResult} from "./types"
 import { bash_t,read_t, write_t} from "./toolabs";
 import { hostname } from "os";
@@ -13,10 +13,19 @@ let mp =new Map<string,Tool>();
 mp.set(bashtool.name,bash_t);
 mp.set(readtool.name,read_t);
 mp.set(writetool.name,write_t);
-export async function main(input:string) {
+mp.set(qnatool.name,qna_fn)
+export async function main(input:string,ctx:string[],convo_id:string) {
 
     // Add the initial user message to history
-    const userStep: UserInputStep = {
+   
+    for(const x of ctx){
+         const userStep: UserInputStep = {
+        type: "user_input",
+        content: [{text:x,type:"text"}]
+    };
+        history.push(userStep)
+    }
+     const userStep: UserInputStep = {
         type: "user_input",
         content: [{text:input,type:"text"}]
     };
@@ -40,7 +49,7 @@ export async function main(input:string) {
                     throw new Error(`unknown tool , not found,${step.name}`);
                 }
                 console.log(step.arguments);
-                const result=await tool.execute(step.arguments);
+                const result=await tool.execute({...step.arguments});
                         const resultStep: FunctionResultStep = {
                             type: "function_result",
                             name: step.name,
@@ -53,6 +62,10 @@ export async function main(input:string) {
 
 
                         history.push(resultStep);
+                        if(tool.name==="qna"){
+
+                            return JSON.stringify({"qn asked",convo_id,result});
+                        }
 
                     } catch (error) {
 
@@ -80,9 +93,6 @@ export async function main(input:string) {
             // If Gemini produced its final answer,
             // we're done.
             if (step.type==="model_output") {
-
-                console.log("\nGemini:", step.content);
-
                 return;
             }
         }

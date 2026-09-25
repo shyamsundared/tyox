@@ -4,6 +4,10 @@
   "target": "postgres",
   "profileHash": "3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2",
   "roots": {
+    "conversation": {
+      "model": "Conversation",
+      "namespace": "public"
+    },
     "conversationHistory": {
       "model": "ConversationHistory",
       "namespace": "public"
@@ -65,18 +69,35 @@
               {
                 "name": "UPDATE_FILE",
                 "value": "UPDATE_FILE"
+              },
+              {
+                "name": "QNA",
+                "value": "QNA"
               }
             ]
           }
         },
         "models": {
-          "ConversationHistory": {
+          "Conversation": {
             "fields": {
               "Content": {
                 "nullable": false,
                 "type": {
                   "codecId": "pg/text@1",
                   "kind": "scalar"
+                }
+              },
+              "ConversationType": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "ConversationType",
+                  "namespaceId": "public",
+                  "plane": "domain"
                 }
               },
               "From": {
@@ -92,6 +113,79 @@
                   "plane": "domain"
                 }
               },
+              "conversation_id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "toolcall": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "Toolcall",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              }
+            },
+            "relations": {
+              "conversation_history": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "conversation_id"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ConversationHistory",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "Content": {
+                  "column": "Content"
+                },
+                "ConversationType": {
+                  "column": "ConversationType"
+                },
+                "From": {
+                  "column": "From"
+                },
+                "conversation_id": {
+                  "column": "conversation_id"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "toolcall": {
+                  "column": "toolcall"
+                }
+              },
+              "namespaceId": "public",
+              "table": "conversation"
+            }
+          },
+          "ConversationHistory": {
+            "fields": {
               "createdAt": {
                 "nullable": false,
                 "type": {
@@ -126,19 +220,6 @@
                   "plane": "domain"
                 }
               },
-              "type": {
-                "nullable": false,
-                "type": {
-                  "codecId": "pg/text@1",
-                  "kind": "scalar"
-                },
-                "valueSet": {
-                  "entityKind": "enum",
-                  "entityName": "ConversationType",
-                  "namespaceId": "public",
-                  "plane": "domain"
-                }
-              },
               "updatedAt": {
                 "nullable": false,
                 "type": {
@@ -148,6 +229,21 @@
               }
             },
             "relations": {
+              "convos": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "conversation_id"
+                  ]
+                },
+                "to": {
+                  "model": "Conversation",
+                  "namespace": "public"
+                }
+              },
               "project": {
                 "cardinality": "N:1",
                 "nullable": false,
@@ -167,12 +263,6 @@
             },
             "storage": {
               "fields": {
-                "Content": {
-                  "column": "Content"
-                },
-                "From": {
-                  "column": "From"
-                },
                 "createdAt": {
                   "column": "createdAt"
                 },
@@ -184,9 +274,6 @@
                 },
                 "toolcall": {
                   "column": "toolcall"
-                },
-                "type": {
-                  "column": "type"
                 },
                 "updatedAt": {
                   "column": "updatedAt"
@@ -375,22 +462,22 @@
       "public": {
         "entries": {
           "table": {
-            "conversationHistory": {
+            "conversation": {
               "checks": [
                 {
+                  "expression": "\"ConversationType\" IN ('TOOL_CALL', 'TEXT_MESSAGE')",
+                  "name": "conversation_ConversationType_check_b627cca5",
+                  "prefix": "conversation_ConversationType_check"
+                },
+                {
                   "expression": "\"From\" IN ('USER', 'ASSISTANT')",
-                  "name": "conversationHistory_From_check_de0b94b5",
-                  "prefix": "conversationHistory_From_check"
+                  "name": "conversation_From_check_de0b94b5",
+                  "prefix": "conversation_From_check"
                 },
                 {
-                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE')",
-                  "name": "conversationHistory_toolcall_check_626e4756",
-                  "prefix": "conversationHistory_toolcall_check"
-                },
-                {
-                  "expression": "\"type\" IN ('TOOL_CALL', 'TEXT_MESSAGE')",
-                  "name": "conversationHistory_type_check_c72643f8",
-                  "prefix": "conversationHistory_type_check"
+                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA')",
+                  "name": "conversation_toolcall_check_8b7096c4",
+                  "prefix": "conversation_toolcall_check"
                 }
               ],
               "columns": {
@@ -398,6 +485,17 @@
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": false
+                },
+                "ConversationType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "ConversationType",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
                 },
                 "From": {
                   "codecId": "pg/text@1",
@@ -410,6 +508,76 @@
                     "plane": "storage"
                   }
                 },
+                "conversation_id": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "expression": "autoincrement()",
+                    "kind": "function"
+                  },
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "toolcall": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "Toolcall",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "conversation_id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "conversation"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "conversationHistory"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "conversation_id"
+                  ],
+                  "name": "conversation_conversation_id_idx_0c3639df",
+                  "prefix": "conversation_conversation_id_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "conversationHistory": {
+              "checks": [
+                {
+                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA')",
+                  "name": "conversationHistory_toolcall_check_8b7096c4",
+                  "prefix": "conversationHistory_toolcall_check"
+                }
+              ],
+              "columns": {
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
                   "default": {
@@ -440,17 +608,6 @@
                   "valueSet": {
                     "entityKind": "valueSet",
                     "entityName": "Toolcall",
-                    "namespaceId": "public",
-                    "plane": "storage"
-                  }
-                },
-                "type": {
-                  "codecId": "pg/text@1",
-                  "nativeType": "text",
-                  "nullable": false,
-                  "valueSet": {
-                    "entityKind": "valueSet",
-                    "entityName": "ConversationType",
                     "namespaceId": "public",
                     "plane": "storage"
                   }
@@ -642,7 +799,8 @@
                 "READ_FILE",
                 "WRITE_FILE",
                 "DELETE_FILE",
-                "UPDATE_FILE"
+                "UPDATE_FILE",
+                "QNA"
               ]
             }
           }
@@ -651,7 +809,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "9fb30665cdf2eff14799161d4379591c4fe014e962cf35a423acbb1756f88edc"
+    "storageHash": "56f2aab45493104e0873f504a9e664c3947e69a45d5b4bdf4210ccedd85bfc9d"
   },
   "capabilities": {
     "postgres": {

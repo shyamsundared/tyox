@@ -59,3 +59,18 @@ export async function writefile(path:string):Promise<ToolResult>{
    
 
 }
+type AgentEvent={
+    type:"question",
+    Conversation_history_id:string,
+    question:string
+}
+type Qna_result={
+    status:"qn asked"
+}
+export function qna_fn(question:string,Conversation_history_id:string,emit:(event:AgentEvent)=>void):Qna_result{
+  
+    return {
+    status:"qn asked"}
+
+
+}

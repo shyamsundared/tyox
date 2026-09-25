@@ -41,3 +41,16 @@ export const writetool:Tooldef={
     },
     
 } as const;
+
+export const qnatool:Tooldef={
+    type:"function",
+    name:"Qna",
+    description:"ask users question back about the requirements before generating code",
+    parameters:{
+        type:Type.OBJECT,
+        properties:{
+            question:{type:Type.STRING,description:"question to ask the user"},
+        },
+        required:["question"],
+    }
+}

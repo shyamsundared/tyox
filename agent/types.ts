@@ -41,8 +41,13 @@ export type Tooldef={
     parameters:object,
 
 }
+export type AgentEvent={
+    type:"question",
+    Conversation_history_id:string,
+    question:string
+}
 export let history: Step[] = [];
-export type Tool={name:string,execute:(args:Record<string,unknown>)=>Promise<ToolResult>}
+export type Tool={name:string,execute:(args:Record<string,unknown>,emit?:(event:AgentEvent)=>void )=>Promise<any>}
 export type ToolResult={
     success:boolean,
     output?:string,

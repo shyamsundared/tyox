@@ -23,12 +23,19 @@ model ConversationHistory{
   id String @id @default(autoincrement())
   project Project @relation(fields:[projectId],references:[id])
   projectId Int 
-  Content String
-  type ConversationType 
-  From  MessageFrom
+  convos Conversation[]
   createdAt TimestamptzString @default(now())
   updatedAt TimestamptzString @default(now())
   toolcall Toolcall
+}
+model Conversation {
+  id String @id @default(autoincrement())
+  conversation_history ConversationHistory @relation(fields:[conversation_id],references:[id])
+  conversation_id Int
+  From MessageFrom
+  Content String
+  toolcall Toolcall?
+  ConversationType ConversationType
 }
 enum MessageFrom{
   USER 
@@ -39,6 +46,7 @@ enum Toolcall{
   WRITE_FILE
   DELETE_FILE
   UPDATE_FILE
+  QNA
 }
 enum ConversationType{
   TOOL_CALL

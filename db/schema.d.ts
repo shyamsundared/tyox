@@ -34,7 +34,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'9fb30665cdf2eff14799161d4379591c4fe014e962cf35a423acbb1756f88edc'>;
+  StorageHashBase<'56f2aab45493104e0873f504a9e664c3947e69a45d5b4bdf4210ccedd85bfc9d'>;
 export type ExecutionHash = ExecutionHashBase<string>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
@@ -241,15 +241,20 @@ type DefaultLiteralValue<CodecId extends string, Encoded> = CodecId extends keyo
 
 export type FieldOutputTypes = {
   readonly public: {
+    readonly Conversation: {
+      readonly id: CodecTypes['pg/text@1']['output'];
+      readonly conversation_id: CodecTypes['pg/int4@1']['output'];
+      readonly From: 'USER' | 'ASSISTANT';
+      readonly Content: CodecTypes['pg/text@1']['output'];
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA' | null;
+      readonly ConversationType: 'TOOL_CALL' | 'TEXT_MESSAGE';
+    };
     readonly ConversationHistory: {
       readonly id: CodecTypes['pg/text@1']['output'];
       readonly projectId: CodecTypes['pg/int4@1']['output'];
-      readonly Content: CodecTypes['pg/text@1']['output'];
-      readonly type: 'TOOL_CALL' | 'TEXT_MESSAGE';
-      readonly From: 'USER' | 'ASSISTANT';
       readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
       readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
-      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE';
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA';
     };
     readonly Project: {
       readonly id: CodecTypes['pg/text@1']['output'];
@@ -269,15 +274,20 @@ export type FieldOutputTypes = {
 };
 export type FieldInputTypes = {
   readonly public: {
+    readonly Conversation: {
+      readonly id: CodecTypes['pg/text@1']['input'];
+      readonly conversation_id: CodecTypes['pg/int4@1']['input'];
+      readonly From: 'USER' | 'ASSISTANT';
+      readonly Content: CodecTypes['pg/text@1']['input'];
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA' | null;
+      readonly ConversationType: 'TOOL_CALL' | 'TEXT_MESSAGE';
+    };
     readonly ConversationHistory: {
       readonly id: CodecTypes['pg/text@1']['input'];
       readonly projectId: CodecTypes['pg/int4@1']['input'];
-      readonly Content: CodecTypes['pg/text@1']['input'];
-      readonly type: 'TOOL_CALL' | 'TEXT_MESSAGE';
-      readonly From: 'USER' | 'ASSISTANT';
       readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
       readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
-      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE';
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA';
     };
     readonly Project: {
       readonly id: CodecTypes['pg/text@1']['input'];
@@ -297,14 +307,19 @@ export type FieldInputTypes = {
 };
 export type StorageColumnTypes = {
   readonly public: {
-    readonly conversationHistory: {
+    readonly conversation: {
       readonly Content: CodecTypes['pg/text@1']['output'];
-      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly conversation_id: CodecTypes['pg/int4@1']['output'];
+      readonly ConversationType: 'TOOL_CALL' | 'TEXT_MESSAGE';
       readonly From: 'USER' | 'ASSISTANT';
       readonly id: CodecTypes['pg/text@1']['output'];
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA' | null;
+    };
+    readonly conversationHistory: {
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly id: CodecTypes['pg/text@1']['output'];
       readonly projectId: CodecTypes['pg/int4@1']['output'];
-      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE';
-      readonly type: 'TOOL_CALL' | 'TEXT_MESSAGE';
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA';
       readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
     };
     readonly project: {
@@ -325,14 +340,19 @@ export type StorageColumnTypes = {
 };
 export type StorageColumnInputTypes = {
   readonly public: {
-    readonly conversationHistory: {
+    readonly conversation: {
       readonly Content: CodecTypes['pg/text@1']['input'];
-      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly conversation_id: CodecTypes['pg/int4@1']['input'];
+      readonly ConversationType: 'TOOL_CALL' | 'TEXT_MESSAGE';
       readonly From: 'USER' | 'ASSISTANT';
       readonly id: CodecTypes['pg/text@1']['input'];
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA' | null;
+    };
+    readonly conversationHistory: {
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly id: CodecTypes['pg/text@1']['input'];
       readonly projectId: CodecTypes['pg/int4@1']['input'];
-      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE';
-      readonly type: 'TOOL_CALL' | 'TEXT_MESSAGE';
+      readonly toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA';
       readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
     };
     readonly project: {
@@ -375,14 +395,22 @@ export namespace Models {
   export type public_ConversationHistory = {
     id: CodecTypes['pg/text@1']['output'];
     projectId: CodecTypes['pg/int4@1']['output'];
-    Content: CodecTypes['pg/text@1']['output'];
-    type: 'TOOL_CALL' | 'TEXT_MESSAGE';
-    From: 'USER' | 'ASSISTANT';
     createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
     updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
-    toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE';
+    toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA';
+    convos: public_Conversation[];
     project: public_Project;
-    readonly [RelationKeys]?: 'project';
+    readonly [RelationKeys]?: 'convos' | 'project';
+  };
+  export type public_Conversation = {
+    id: CodecTypes['pg/text@1']['output'];
+    conversation_id: CodecTypes['pg/int4@1']['output'];
+    From: 'USER' | 'ASSISTANT';
+    Content: CodecTypes['pg/text@1']['output'];
+    toolcall: 'READ_FILE' | 'WRITE_FILE' | 'DELETE_FILE' | 'UPDATE_FILE' | 'QNA' | null;
+    ConversationType: 'TOOL_CALL' | 'TEXT_MESSAGE';
+    conversation_history: public_ConversationHistory;
+    readonly [RelationKeys]?: 'conversation_history';
   };
 }
 
@@ -391,6 +419,7 @@ export declare const models: {
     User: Models.public_User;
     Project: Models.public_Project;
     ConversationHistory: Models.public_ConversationHistory;
+    Conversation: Models.public_Conversation;
   };
 };
 
@@ -412,6 +441,68 @@ type ContractBase = Omit<
         readonly kind: 'postgres-schema';
         readonly entries: {
           readonly table: {
+            readonly conversation: {
+              columns: {
+                readonly id: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'function';
+                    readonly expression: 'autoincrement()';
+                  };
+                };
+                readonly conversation_id: {
+                  readonly nativeType: 'int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: false;
+                };
+                readonly From: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly Content: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly toolcall: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly ConversationType: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+              };
+              primaryKey: { readonly columns: readonly ['id'] };
+              uniques: readonly [];
+              indexes: readonly [
+                {
+                  readonly name: 'conversation_conversation_id_idx_0c3639df';
+                  readonly prefix: 'conversation_conversation_id_idx';
+                  readonly columns: readonly ['conversation_id'];
+                  readonly unique: false;
+                },
+              ];
+              foreignKeys: readonly [
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'conversation';
+                    readonly columns: readonly ['conversation_id'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'conversationHistory';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+              ];
+            };
             readonly conversationHistory: {
               columns: {
                 readonly id: {
@@ -426,21 +517,6 @@ type ContractBase = Omit<
                 readonly projectId: {
                   readonly nativeType: 'int4';
                   readonly codecId: 'pg/int4@1';
-                  readonly nullable: false;
-                };
-                readonly Content: {
-                  readonly nativeType: 'text';
-                  readonly codecId: 'pg/text@1';
-                  readonly nullable: false;
-                };
-                readonly type: {
-                  readonly nativeType: 'text';
-                  readonly codecId: 'pg/text@1';
-                  readonly nullable: false;
-                };
-                readonly From: {
-                  readonly nativeType: 'text';
-                  readonly codecId: 'pg/text@1';
                   readonly nullable: false;
                 };
                 readonly createdAt: {
@@ -595,7 +671,13 @@ type ContractBase = Omit<
             };
             readonly Toolcall: {
               readonly kind: 'valueSet';
-              readonly values: readonly ['READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE'];
+              readonly values: readonly [
+                'READ_FILE',
+                'WRITE_FILE',
+                'DELETE_FILE',
+                'UPDATE_FILE',
+                'QNA',
+              ];
             };
           };
         };
@@ -614,11 +696,69 @@ type ContractBase = Omit<
       readonly namespace: 'public' & NamespaceId;
       readonly model: 'ConversationHistory';
     };
+    readonly conversation: {
+      readonly namespace: 'public' & NamespaceId;
+      readonly model: 'Conversation';
+    };
   };
   readonly domain: {
     readonly namespaces: {
       readonly public: {
         readonly models: {
+          readonly Conversation: {
+            readonly fields: {
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly conversation_id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly From: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly Content: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly toolcall: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly ConversationType: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+            };
+            readonly relations: {
+              readonly conversation_history: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'ConversationHistory';
+                };
+                readonly cardinality: 'N:1';
+                readonly nullable: false;
+                readonly on: {
+                  readonly localFields: readonly ['conversation_id'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'conversation';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly id: { readonly column: 'id' };
+                readonly conversation_id: { readonly column: 'conversation_id' };
+                readonly From: { readonly column: 'From' };
+                readonly Content: { readonly column: 'Content' };
+                readonly toolcall: { readonly column: 'toolcall' };
+                readonly ConversationType: { readonly column: 'ConversationType' };
+              };
+            };
+          };
           readonly ConversationHistory: {
             readonly fields: {
               readonly id: {
@@ -628,18 +768,6 @@ type ContractBase = Omit<
               readonly projectId: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
-              };
-              readonly Content: {
-                readonly nullable: false;
-                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
-              };
-              readonly type: {
-                readonly nullable: false;
-                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
-              };
-              readonly From: {
-                readonly nullable: false;
-                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
               };
               readonly createdAt: {
                 readonly nullable: false;
@@ -661,6 +789,17 @@ type ContractBase = Omit<
               };
             };
             readonly relations: {
+              readonly convos: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Conversation';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['conversation_id'];
+                };
+              };
               readonly project: {
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
@@ -680,9 +819,6 @@ type ContractBase = Omit<
               readonly fields: {
                 readonly id: { readonly column: 'id' };
                 readonly projectId: { readonly column: 'projectId' };
-                readonly Content: { readonly column: 'Content' };
-                readonly type: { readonly column: 'type' };
-                readonly From: { readonly column: 'From' };
                 readonly createdAt: { readonly column: 'createdAt' };
                 readonly updatedAt: { readonly column: 'updatedAt' };
                 readonly toolcall: { readonly column: 'toolcall' };
@@ -819,6 +955,7 @@ type ContractBase = Omit<
               { readonly name: 'WRITE_FILE'; readonly value: 'WRITE_FILE' },
               { readonly name: 'DELETE_FILE'; readonly value: 'DELETE_FILE' },
               { readonly name: 'UPDATE_FILE'; readonly value: 'UPDATE_FILE' },
+              { readonly name: 'QNA'; readonly value: 'QNA' },
             ];
           };
           readonly ConversationType: {
