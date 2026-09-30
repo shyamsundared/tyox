@@ -18,9 +18,3 @@ export const write_t:Tool={
         const arg=JSON.stringify(args);
         return writefile(args.commands as string)}
 }
-export const qna_fn:Tool={
-    name:"qna_tool",
-    execute:async (args,emit:)=>{
-        const arg=JSON.stringify(args);
-        return writefile(args.commands as string)}
-}
