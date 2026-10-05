@@ -16,6 +16,10 @@
       "model": "Project",
       "namespace": "public"
     },
+    "todo": {
+      "model": "Todo",
+      "namespace": "public"
+    },
     "user": {
       "model": "User",
       "namespace": "public"
@@ -73,6 +77,10 @@
               {
                 "name": "QNA",
                 "value": "QNA"
+              },
+              {
+                "name": "CREATE_TODOS",
+                "value": "CREATE_TODOS"
               }
             ]
           }
@@ -116,7 +124,14 @@
               "conversation_id": {
                 "nullable": false,
                 "type": {
-                  "codecId": "pg/int4@1",
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
                   "kind": "scalar"
                 }
               },
@@ -173,6 +188,9 @@
                 "conversation_id": {
                   "column": "conversation_id"
                 },
+                "createdAt": {
+                  "column": "createdAt"
+                },
                 "id": {
                   "column": "id"
                 },
@@ -186,6 +204,13 @@
           },
           "ConversationHistory": {
             "fields": {
+              "agentState": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "createdAt": {
                 "nullable": false,
                 "type": {
@@ -203,21 +228,8 @@
               "projectId": {
                 "nullable": false,
                 "type": {
-                  "codecId": "pg/int4@1",
-                  "kind": "scalar"
-                }
-              },
-              "toolcall": {
-                "nullable": false,
-                "type": {
                   "codecId": "pg/text@1",
                   "kind": "scalar"
-                },
-                "valueSet": {
-                  "entityKind": "enum",
-                  "entityName": "Toolcall",
-                  "namespaceId": "public",
-                  "plane": "domain"
                 }
               },
               "updatedAt": {
@@ -263,6 +275,9 @@
             },
             "storage": {
               "fields": {
+                "agentState": {
+                  "column": "agentState"
+                },
                 "createdAt": {
                   "column": "createdAt"
                 },
@@ -271,9 +286,6 @@
                 },
                 "projectId": {
                   "column": "projectId"
-                },
-                "toolcall": {
-                  "column": "toolcall"
                 },
                 "updatedAt": {
                   "column": "updatedAt"
@@ -323,7 +335,7 @@
               "userid": {
                 "nullable": false,
                 "type": {
-                  "codecId": "pg/int4@1",
+                  "codecId": "pg/text@1",
                   "kind": "scalar"
                 }
               }
@@ -359,6 +371,21 @@
                   "model": "User",
                   "namespace": "public"
                 }
+              },
+              "todos": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "projectId"
+                  ]
+                },
+                "to": {
+                  "model": "Todo",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -384,6 +411,104 @@
               },
               "namespaceId": "public",
               "table": "project"
+            }
+          },
+          "Todo": {
+            "fields": {
+              "completed": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "description": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "position": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "projectId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "title": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "project": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "projectId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Project",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "completed": {
+                  "column": "completed"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "description": {
+                  "column": "description"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "position": {
+                  "column": "position"
+                },
+                "projectId": {
+                  "column": "projectId"
+                },
+                "title": {
+                  "column": "title"
+                }
+              },
+              "namespaceId": "public",
+              "table": "todo"
             }
           },
           "User": {
@@ -475,8 +600,8 @@
                   "prefix": "conversation_From_check"
                 },
                 {
-                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA')",
-                  "name": "conversation_toolcall_check_8b7096c4",
+                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA', 'CREATE_TODOS')",
+                  "name": "conversation_toolcall_check_8865f85c",
                   "prefix": "conversation_toolcall_check"
                 }
               ],
@@ -509,16 +634,21 @@
                   }
                 },
                 "conversation_id": {
-                  "codecId": "pg/int4@1",
-                  "nativeType": "int4",
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "default": {
-                    "expression": "autoincrement()",
-                    "kind": "function"
-                  },
                   "nativeType": "text",
                   "nullable": false
                 },
@@ -570,14 +700,12 @@
               "uniques": []
             },
             "conversationHistory": {
-              "checks": [
-                {
-                  "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA')",
-                  "name": "conversationHistory_toolcall_check_8b7096c4",
-                  "prefix": "conversationHistory_toolcall_check"
-                }
-              ],
               "columns": {
+                "agentState": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
                   "default": {
@@ -589,28 +717,13 @@
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "default": {
-                    "expression": "autoincrement()",
-                    "kind": "function"
-                  },
                   "nativeType": "text",
                   "nullable": false
                 },
                 "projectId": {
-                  "codecId": "pg/int4@1",
-                  "nativeType": "int4",
-                  "nullable": false
-                },
-                "toolcall": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
-                  "nullable": false,
-                  "valueSet": {
-                    "entityKind": "valueSet",
-                    "entityName": "Toolcall",
-                    "namespaceId": "public",
-                    "plane": "storage"
-                  }
+                  "nullable": false
                 },
                 "updatedAt": {
                   "codecId": "pg/timestamptz-string@1",
@@ -670,10 +783,6 @@
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "default": {
-                    "expression": "autoincrement()",
-                    "kind": "function"
-                  },
                   "nativeType": "text",
                   "nullable": false
                 },
@@ -697,8 +806,8 @@
                   "nullable": false
                 },
                 "userid": {
-                  "codecId": "pg/int4@1",
-                  "nativeType": "int4",
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
                   "nullable": false
                 }
               },
@@ -737,6 +846,91 @@
               },
               "uniques": []
             },
+            "todo": {
+              "columns": {
+                "completed": {
+                  "codecId": "pg/bool@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "description": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "position": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": 0
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "projectId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "title": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "projectId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "todo"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "project"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "projectId"
+                  ],
+                  "name": "todo_projectId_idx_a96e4d92",
+                  "prefix": "todo_projectId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "user": {
               "columns": {
                 "createdAt": {
@@ -750,10 +944,6 @@
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "default": {
-                    "expression": "autoincrement()",
-                    "kind": "function"
-                  },
                   "nativeType": "text",
                   "nullable": false
                 },
@@ -775,7 +965,13 @@
                   "id"
                 ]
               },
-              "uniques": []
+              "uniques": [
+                {
+                  "columns": [
+                    "username"
+                  ]
+                }
+              ]
             }
           },
           "valueSet": {
@@ -800,7 +996,8 @@
                 "WRITE_FILE",
                 "DELETE_FILE",
                 "UPDATE_FILE",
-                "QNA"
+                "QNA",
+                "CREATE_TODOS"
               ]
             }
           }
@@ -809,7 +1006,69 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "56f2aab45493104e0873f504a9e664c3947e69a45d5b4bdf4210ccedd85bfc9d"
+    "storageHash": "2a9b623d2caed7c019d77bb31ca43ccc352ddaa1c2ceacf4bacd89f72d721f38"
+  },
+  "execution": {
+    "executionHash": "ce609a9a920824b9f3d436fac7c20e480710884a5cff0d3112da48b893c77ac8",
+    "mutations": {
+      "defaults": [
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "id",
+            "namespace": "public",
+            "table": "conversation"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "id",
+            "namespace": "public",
+            "table": "conversationHistory"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "id",
+            "namespace": "public",
+            "table": "project"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "id",
+            "namespace": "public",
+            "table": "todo"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "id",
+            "namespace": "public",
+            "table": "user"
+          }
+        }
+      ]
+    }
   },
   "capabilities": {
     "postgres": {

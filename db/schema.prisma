@@ -1,54 +1,80 @@
-// use prisma-8
+// Prisma ORM 8 data contract for tyox.
 
-
-
-model User{
-  id String @id @default(autoincrement())
-  projects Project[]
-  username String
-  password String
-  createdAt   TimestamptzString @default(now())
+model User {
+  id        String    @id @default(uuid())
+  username  String    @unique
+  password  String
+  createdAt TimestamptzString @default(now())
+  projects  Project[]
 }
-model Project{
-id String @id @default(autoincrement())
-owner User @relation(fields:[userid],references:[id])
-userid Int
-conversation_history ConversationHistory[]
-title String
-createdAt TimestamptzString @default(now())
-updatedAt TimestamptzString @default(now())
-initialPrompt String
+
+model Project {
+  id                   String               @id @default(uuid())
+  userid               String
+  owner                User                 @relation(fields: [userid], references: [id])
+  title                String
+  initialPrompt        String
+  createdAt            TimestamptzString    @default(now())
+  updatedAt            TimestamptzString    @default(now())
+  conversation_history ConversationHistory[]
+  todos                Todo[]
+
+  @@index([userid])
 }
-model ConversationHistory{
-  id String @id @default(autoincrement())
-  project Project @relation(fields:[projectId],references:[id])
-  projectId Int 
-  convos Conversation[]
+
+model ConversationHistory {
+  id        String         @id @default(uuid())
+  projectId String
+  project   Project        @relation(fields: [projectId], references: [id])
+  convos    Conversation[]
+  agentState String?
   createdAt TimestamptzString @default(now())
   updatedAt TimestamptzString @default(now())
-  toolcall Toolcall
+
+  @@index([projectId])
 }
+
 model Conversation {
-  id String @id @default(autoincrement())
-  conversation_history ConversationHistory @relation(fields:[conversation_id],references:[id])
-  conversation_id Int
-  From MessageFrom
-  Content String
-  toolcall Toolcall?
+  id              String             @id @default(uuid())
+  conversation_id String
+  conversation_history ConversationHistory @relation(fields: [conversation_id], references: [id])
+  From            MessageFrom
+  Content         String
   ConversationType ConversationType
+  toolcall        Toolcall?
+  createdAt       TimestamptzString  @default(now())
+
+  @@index([conversation_id])
 }
-enum MessageFrom{
-  USER 
+
+model Todo {
+  id          String          @id @default(uuid())
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id])
+  title       String
+  description String?
+  completed   Boolean         @default(false)
+  position    Int             @default(0)
+  createdAt   TimestamptzString @default(now())
+
+  @@index([projectId])
+}
+
+enum MessageFrom {
+  USER
   ASSISTANT
 }
-enum Toolcall{
+
+enum Toolcall {
   READ_FILE
   WRITE_FILE
   DELETE_FILE
   UPDATE_FILE
   QNA
+  CREATE_TODOS
 }
-enum ConversationType{
+
+enum ConversationType {
   TOOL_CALL
   TEXT_MESSAGE
 }
