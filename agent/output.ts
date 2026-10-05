@@ -1,8 +1,15 @@
-import { bashtool, qnatool, readtool, writetool } from "./tooldefinition";
+import {
+    bashToolDefinition,
+    createTodosToolDefinition,
+    questionToolDefinition,
+    readToolDefinition,
+    writeToolDefinition,
+} from "./tooldefinition";
 import type { FunctionResultStep, Step, UserInputStep } from "./types";
 import { client } from "./types";
 import type { Tool } from "./types";
-import { bash_t, read_t, write_t } from "./toolabs";
+import { bashTool, createTodosTool, readTool, writeTool } from "./toolabs";
+import type { AgentClientEvent, CompleteEvent, QuestionEvent } from "../shared/agent-events";
 
 export type WaitingForUser = {
     state: "waiting_for_user";
@@ -10,19 +17,31 @@ export type WaitingForUser = {
     question: string;
     call_id: string;
     tool_name: string;
+    project_id: string;
     history: Step[];
 };
 
-export type AgentCompletion = { state: "completed"; history: Step[]; output: unknown };
-export type AgentRunResult = WaitingForUser | AgentCompletion;
+type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name" | "project_id" | "question">;
+export type AgentRunEvent =
+    | (QuestionEvent & { pendingRun: PendingRun })
+    | (CompleteEvent & { conversationId: string })
+    | Extract<AgentClientEvent, { event: "error" }>;
+export type AgentEventEmitter = (event: AgentRunEvent) => Promise<void>;
 
 const tools = new Map<string, Tool>([
-    [bashtool.name, bash_t],
-    [readtool.name, read_t],
-    [writetool.name, write_t],
+    [bashToolDefinition.name, bashTool],
+    [readToolDefinition.name, readTool],
+    [writeToolDefinition.name, writeTool],
+    [createTodosToolDefinition.name, createTodosTool],
 ]);
 
-export async function main(input: string, ctx: string[], convo_id: string): Promise<AgentRunResult> {
+export async function main(
+    input: string,
+    ctx: string[],
+    convo_id: string,
+    project_id: string,
+    emit: AgentEventEmitter,
+): Promise<void> {
     const history: Step[] = ctx.map((text): UserInputStep => ({
         type: "user_input",
         content: [{ text, type: "text" }],
@@ -32,7 +51,7 @@ export async function main(input: string, ctx: string[], convo_id: string): Prom
         content: [{ text: input, type: "text" }],
     });
 
-    return runLoop(history, convo_id);
+    await runLoop(history, convo_id, project_id, emit);
 }
 
 export async function resume(
@@ -40,8 +59,10 @@ export async function resume(
     convo_id: string,
     call_id: string,
     tool_name: string,
+    project_id: string,
     answer: string,
-): Promise<AgentRunResult> {
+    emit: AgentEventEmitter,
+): Promise<void> {
     const resultStep: FunctionResultStep = {
         type: "function_result",
         name: tool_name,
@@ -49,41 +70,61 @@ export async function resume(
         result: { output: answer },
     };
     history.push(resultStep);
-    return runLoop(history, convo_id);
+    await runLoop(history, convo_id, project_id, emit);
 }
 
-async function runLoop(history: Step[], convo_id: string): Promise<AgentRunResult> {
+async function runLoop(
+    history: Step[],
+    convo_id: string,
+    project_id: string,
+    emit: AgentEventEmitter,
+): Promise<void> {
     while (true) {
         const response = await client.interactions.create({
             model: "gemini-3.5-flash-lite",
             input: history,
-            tools: [bashtool, readtool, writetool, qnatool],
+            tools: [
+                bashToolDefinition,
+                readToolDefinition,
+                writeToolDefinition,
+                questionToolDefinition,
+                createTodosToolDefinition,
+            ],
         });
 
         for (const step of response.steps) {
             history.push(step);
 
             if (step.type === "function_call") {
-                if (step.name === qnatool.name) {
+                if (step.name === questionToolDefinition.name) {
                     const question = step.arguments.question;
                     if (typeof question !== "string") {
                         throw new Error("Q&A tool call did not include a string question");
                     }
-                    return {
-                        state: "waiting_for_user",
-                        convo_id,
+                    const pendingRun: PendingRun = {
                         question,
                         call_id: step.id,
                         tool_name: step.name,
+                        project_id,
                         history,
                     };
+                    await emit({
+                        event: "question",
+                        data: {
+                            conversation_id: convo_id,
+                            call_id: step.id,
+                            question,
+                        },
+                        pendingRun,
+                    });
+                    return;
                 }
 
                 const tool = tools.get(step.name);
                 let output: unknown;
                 try {
                     if (!tool) throw new Error(`Unknown tool: ${step.name}`);
-                    output = await tool.execute({ ...step.arguments });
+                    output = await tool.execute({ ...step.arguments, project_id });
                 } catch (error) {
                     output = error instanceof Error ? error.message : String(error);
                 }
@@ -97,7 +138,17 @@ async function runLoop(history: Step[], convo_id: string): Promise<AgentRunResul
             }
 
             if (step.type === "model_output") {
-                return { state: "completed", history, output: step };
+                const message = (step.content ?? [])
+                    .filter((part) => part.type === "text")
+                    .map((part) => part.text)
+                    .join("");
+                if (!message.trim()) throw new Error("Agent returned an empty response");
+                await emit({
+                    event: "complete",
+                    data: { message },
+                    conversationId: convo_id,
+                });
+                return;
             }
         }
     }

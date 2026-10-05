@@ -1,15 +1,44 @@
 import express from "express";
-import cors from "cors";
-import { main, resume, type WaitingForUser } from "./output";
+import { main, resume, type AgentEventEmitter, type AgentRunEvent, type WaitingForUser } from "./output";
+import { db } from "../db/db";
+import { formatSseEvent } from "../shared/agent-events";
 
 const app = express();
 app.use(express.json());
-app.use(cors());
 
-type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name">;
-// Pending runs are keyed by conversation so simultaneous users do not share history.
-// Replace this process-local store with database persistence before running multiple workers.
-const pendingRuns = new Map<string, PendingRun>();
+type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name" | "project_id" | "question">;
+const resumingConversations = new Set<string>();
+
+async function savePendingRun(conversationId: string, pending: PendingRun | null) {
+    await db.orm.public.ConversationHistory
+        .where({ id: conversationId })
+        .update({ agentState: pending ? JSON.stringify(pending) : null });
+}
+
+async function loadPendingRun(conversationId: string): Promise<PendingRun | null> {
+    const conversation = await db.orm.public.ConversationHistory
+        .where({ id: conversationId })
+        .first();
+    if (!conversation?.agentState) return null;
+
+    try {
+        const pending = JSON.parse(conversation.agentState) as Partial<PendingRun>;
+        if (
+            typeof pending.call_id !== "string" ||
+            typeof pending.tool_name !== "string" ||
+            typeof pending.project_id !== "string" ||
+            typeof pending.question !== "string" ||
+            !Array.isArray(pending.history)
+        ) {
+            throw new Error("Stored pending agent state is malformed");
+        }
+        return pending as PendingRun;
+    } catch (error) {
+        throw new Error(
+            `Could not read pending agent state for conversation ${conversationId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+}
 
 function startSse(res: express.Response) {
     res.status(200);
@@ -19,45 +48,46 @@ function startSse(res: express.Response) {
     res.flushHeaders();
 }
 
-function sendEvent(res: express.Response, event: string, data: unknown) {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+async function emitAgentEvent(res: express.Response, event: AgentRunEvent) {
+    if (event.event === "question") {
+        await savePendingRun(event.data.conversation_id, event.pendingRun);
+    }
+    if (event.event === "complete") {
+        await savePendingRun(event.conversationId, null);
+    }
+    if (!res.destroyed && !res.writableEnded) res.write(formatSseEvent(event));
 }
 
-async function sendRun(res: express.Response, result: Awaited<ReturnType<typeof main>>) {
-    if (result.state === "waiting_for_user") {
-        pendingRuns.set(result.convo_id, {
-            history: result.history,
-            call_id: result.call_id,
-            tool_name: result.tool_name,
+async function streamAgentEvents(
+    res: express.Response,
+    run: (emit: AgentEventEmitter) => Promise<void>,
+) {
+    startSse(res);
+    const emit: AgentEventEmitter = (event) => emitAgentEvent(res, event);
+    try {
+        await run(emit);
+    } catch (error) {
+        await emit({
+            event: "error",
+            data: { message: error instanceof Error ? error.message : String(error) },
         });
-        sendEvent(res, "question", {
-            conversation_id: result.convo_id,
-            call_id: result.call_id,
-            question: result.question,
-        });
-    } else {
-        sendEvent(res, "complete", { state: result.state, output: result.output });
+    } finally {
+        if (!res.writableEnded) res.end();
     }
-    res.end();
 }
 
 app.post("/api/v1/agent/loop", async (req, res) => {
-    const { conversation_id, message } = req.body as {
+    const { conversation_id, message, project_id } = req.body as {
         conversation_id?: string;
         message?: string;
+        project_id?: string;
     };
-    if (!conversation_id || typeof message !== "string") {
-        res.status(400).json({ error: "conversation_id and message are required" });
+    if (!conversation_id || typeof message !== "string" || !project_id) {
+        res.status(400).json({ error: "conversation_id, project_id, and message are required" });
         return;
     }
 
-    startSse(res);
-    try {
-        await sendRun(res, await main(message, [], conversation_id));
-    } catch (error) {
-        sendEvent(res, "error", { message: error instanceof Error ? error.message : String(error) });
-        res.end();
-    }
+    await streamAgentEvents(res, (emit) => main(message, [], conversation_id, project_id, emit));
 });
 
 app.post("/api/v1/agent/resume", async (req, res) => {
@@ -71,27 +101,37 @@ app.post("/api/v1/agent/resume", async (req, res) => {
         return;
     }
 
-    const pending = pendingRuns.get(conversation_id);
+    if (resumingConversations.has(conversation_id)) {
+        res.status(409).json({ error: "A response is already being processed for this conversation" });
+        return;
+    }
+
+    let pending: PendingRun | null;
+    try {
+        pending = await loadPendingRun(conversation_id);
+    } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        return;
+    }
     if (!pending || pending.call_id !== call_id) {
         res.status(409).json({ error: "No matching pending question for this conversation" });
         return;
     }
 
-    // Remove before resuming so the same answer cannot be submitted twice.
-    pendingRuns.delete(conversation_id);
-    startSse(res);
+    const pendingRun = pending;
+    resumingConversations.add(conversation_id);
     try {
-        const result = await resume(
-            pending.history,
+        await streamAgentEvents(res, (emit) => resume(
+            pendingRun.history,
             conversation_id,
-            pending.call_id,
-            pending.tool_name,
+            pendingRun.call_id,
+            pendingRun.tool_name,
+            pendingRun.project_id,
             answer,
-        );
-        await sendRun(res, result);
-    } catch (error) {
-        sendEvent(res, "error", { message: error instanceof Error ? error.message : String(error) });
-        res.end();
+            emit,
+        ));
+    } finally {
+        resumingConversations.delete(conversation_id);
     }
 });
 
