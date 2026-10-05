@@ -1,15 +1,12 @@
-# backend
+# Backend
 
-To install dependencies:
+The backend owns project and conversation endpoints, writes chat history to PostgreSQL, and relays the agent's server-sent event stream to the browser.
 
-```bash
+From this directory:
+
+```sh
 bun install
-```
-
-To run:
-
-```bash
 bun run index.ts
 ```
 
-This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+It listens on port 3000. Set `FRONTEND_ORIGIN` if the frontend is running at a different origin. The agent URL is currently `http://localhost:3001` in `index.ts`.

@@ -5,15 +5,14 @@
     "": {
       "name": "backend",
       "dependencies": {
-        "@types/axios": "^0.14.4",
-        "@types/bcrypt": "^6.0.0",
-        "@types/express": "^5.0.6",
         "axios": "^1.20.0",
         "bcrypt": "^6.0.0",
         "express": "^5.2.1",
       },
       "devDependencies": {
+        "@types/bcrypt": "^6.0.0",
         "@types/bun": "latest",
+        "@types/express": "^5.0.6",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -21,8 +20,6 @@
     },
   },
   "packages": {
-    "@types/axios": ["@types/axios@0.14.4", "", { "dependencies": { "axios": "*" } }, "sha512-9JgOaunvQdsQ/qW2OPmE5+hCeUB52lQSolecrFrthct55QekhmXEwT203s20RL+UHtCQc15y3VXpby9E7Kkh/g=="],
-
     "@types/bcrypt": ["@types/bcrypt@6.0.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-/oJGukuH3D2+D+3H4JWLaAsJ/ji86dhRidzZ/Od7H/i8g+aCmvkeCc6Ni/f9uxGLSQVCRZkX2/lqEFG2BvWtlQ=="],
 
     "@types/body-parser": ["@types/body-parser@1.19.6", "", { "dependencies": { "@types/connect": "*", "@types/node": "*" } }, "sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g=="],
