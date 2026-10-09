@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-
+import {z} from "zod";
 const geminiKey = process.env.GEMINI_API_KEY;
 
 export const client = new GoogleGenAI({
@@ -34,6 +34,7 @@ export type Tooldef = {
     parameters: object;
 };
 
+
 export type Tool = {
     name: string;
     execute: (args: Record<string, unknown>) => Promise<ToolResult>;
@@ -41,5 +42,5 @@ export type Tool = {
 
 export type ToolResult = {
     success: boolean;
-    output: string;
-};
+    output: string;}
+

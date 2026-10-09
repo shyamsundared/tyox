@@ -4,7 +4,7 @@ import type { Tooldef } from "./types";
 export const bashToolDefinition: Tooldef = {
     type: "function",
     name: "Bash_Tool",
-    description: "Run a shell command in the current Vite + React + TypeScript project directory. Use this to inspect, build, or run the existing React app; do not replace the project with a standalone HTML page.",
+    description: "Run a shell command in the current Vite + React + TypeScript project directory. Use this for inspecting files or other focused project tasks; do not replace the project with a standalone HTML page. Do not run the test suite or production build; Tyox runs both once after implementation.",
     parameters: {
         type: Type.OBJECT,
         properties: {
@@ -30,7 +30,7 @@ export const readToolDefinition: Tooldef = {
 export const writeToolDefinition: Tooldef = {
     type: "function",
     name: "Write_File",
-    description: "Write a project file. This workspace is already a Vite + React + TypeScript app: put page UI in src/App.tsx and styles in src/index.css. Keep package.json, index.html, and src/main.tsx as the app setup unless the user explicitly asks to change the setup.",
+    description: "Write a project file. This workspace is already a Vite + React + TypeScript app: put page UI in src/App.tsx and styles in src/index.css. For each user request, derive a few user-visible acceptance criteria and create or update focused tests for them in src before or alongside the implementation. Use React Testing Library queries and user interactions, preserve existing useful tests, and never weaken or delete a test just to make it pass. Keep package.json, index.html, and src/main.tsx as the app setup unless the user explicitly asks to change the setup.",
     parameters: {
         type: Type.OBJECT,
         properties: {

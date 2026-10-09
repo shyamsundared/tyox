@@ -198,7 +198,10 @@ export function AgentChat() {
 
     const content = eventMessage(event);
     if (content) setMessages((current) => [...current, { role: "assistant", content }]);
-    if (event.event === "question") setPending(event.data);
+    if (event.event === "question") {
+      setPending(event.data);
+      setStatus("");
+    }
     if (event.event === "complete") {
       setPending(null);
       setStatus("");
@@ -218,6 +221,7 @@ export function AgentChat() {
         setTodos(refreshed);
       }
     } catch (cause) {
+      setStatus("");
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
