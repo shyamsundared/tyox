@@ -1,9 +1,11 @@
-import { getProjectSandbox, PROJECT_ROOT } from "./workspace";
+import { ensureProjectDependencies, getProjectSandbox, PROJECT_ROOT } from "./workspace";
 import type { PreviewEvent, UpdateEvent } from "../shared/agent-events";
 import { CommandExitError } from "e2b";
+import { remainingTimeout, withDeadline } from "./deadline";
 
 const PREVIEW_PORT = 4173;
 const PREVIEW_PROCESS_TIMEOUT_MS = 30 * 60 * 1000;
+const DIAGNOSTIC_LOG_LIMIT = 6000;
 
 type PackageJson = {
     scripts?: Record<string, unknown>;
@@ -14,16 +16,17 @@ type PreviewEmitter = (event: PreviewEvent | UpdateEvent) => Promise<void>;
 function commandFailure(error: unknown): string {
     if (error instanceof CommandExitError) {
         const output = [error.stderr, error.stdout, error.error].filter(Boolean).join("\n").trim();
-        return `Command exited with status ${error.exitCode}${output ? `: ${output.slice(-1200)}` : ""}`;
+        return `Command exited with status ${error.exitCode}${output ? `: ${output.slice(-DIAGNOSTIC_LOG_LIMIT)}` : ""}`;
     }
     return error instanceof Error ? error.message : String(error);
 }
 
-export async function startProjectPreview(projectId: string, emit: PreviewEmitter): Promise<string> {
-    const sandbox = await getProjectSandbox(projectId);
+export async function startProjectPreview(projectId: string, emit: PreviewEmitter, deadlineAt: number): Promise<string> {
+    const sandbox = await withDeadline(getProjectSandbox(projectId), deadlineAt);
+    await ensureProjectDependencies(sandbox, deadlineAt);
     let packageJson: PackageJson;
     try {
-        packageJson = JSON.parse(await sandbox.files.read(`${PROJECT_ROOT}/package.json`)) as PackageJson;
+        packageJson = JSON.parse(await withDeadline(sandbox.files.read(`${PROJECT_ROOT}/package.json`), deadlineAt)) as PackageJson;
     } catch {
         throw new Error("I couldn't find a valid package.json in the project workspace.");
     }
@@ -35,43 +38,30 @@ export async function startProjectPreview(projectId: string, emit: PreviewEmitte
     }
 
     await emit({ event: "update", data: { message: "Preparing the app preview…" } });
-    const dependencies = await sandbox.commands.run("if [ -d node_modules ]; then printf installed; else printf missing; fi", {
-        cwd: PROJECT_ROOT,
-        timeoutMs: 10_000,
-    });
-    if (dependencies.stdout.trim() !== "installed") {
-        await emit({ event: "update", data: { message: "Installing project dependencies…" } });
-        try {
-            await sandbox.commands.run("npm install --no-audit --no-fund", {
-                cwd: PROJECT_ROOT,
-                timeoutMs: 120_000,
-            });
-        } catch (error) {
-            throw new Error(`Dependency installation failed. ${commandFailure(error)}`);
-        }
-    }
-
-    const readyCheck = `node -e 'const until=Date.now()+30000; async function check(){try{const r=await fetch("http://127.0.0.1:${PREVIEW_PORT}");if(r.status<500){console.log("ready");return}}catch{}if(Date.now()>until){console.log("timeout");return}setTimeout(check,500)}check()'`;
+    const script = String(scripts[scriptName]);
+    const probePath = /\bvite\b/.test(script) ? "/src/main.tsx" : "/";
     const previewHost = sandbox.getHost(PREVIEW_PORT);
-    const currentServer = await sandbox.commands.run(
-        `node -e 'const http=require("node:http");const req=http.get({hostname:"127.0.0.1",port:${PREVIEW_PORT},headers:{host:"${previewHost}"}},r=>{console.log(r.statusCode);r.resume()});req.on("error",()=>console.log("not-ready"))'`,
-        { cwd: PROJECT_ROOT, timeoutMs: 5_000 },
+    const readyWaitMs = remainingTimeout(deadlineAt, 30_000);
+    const readyCheck = `node -e 'const http=require("node:http");const until=Date.now()+${readyWaitMs};function check(){const req=http.get({hostname:"127.0.0.1",port:${PREVIEW_PORT},path:"${probePath}",headers:{host:"${previewHost}"}},r=>{let body="";r.on("data",chunk=>{if(body.length<${DIAGNOSTIC_LOG_LIMIT})body+=chunk});r.on("end",()=>{if(r.statusCode<500&&r.statusCode!==403){console.log("ready");return}console.log("error:"+r.statusCode+"\\n"+body);})});req.on("error",retry)}function retry(){if(Date.now()>until){console.log("timeout");return}setTimeout(check,500)}check()'`;
+    const currentServerRequest = sandbox.commands.run(
+        `node -e 'const http=require("node:http");const req=http.get({hostname:"127.0.0.1",port:${PREVIEW_PORT},path:"${probePath}",headers:{host:"${previewHost}"}},r=>{console.log(r.statusCode);r.resume()});req.on("error",()=>console.log("not-ready"))'`,
+        { cwd: PROJECT_ROOT, timeoutMs: remainingTimeout(deadlineAt, 5_000) },
     );
+    const currentServer = await withDeadline(currentServerRequest, deadlineAt);
 
     const currentStatus = currentServer.stdout.trim();
-    if (currentStatus === "403") {
-        const processes = await sandbox.commands.list();
-        const viteProcesses = processes.filter((process) => {
+    if (currentStatus === "403" || /^5\d\d$/.test(currentStatus)) {
+        const processes = await withDeadline(sandbox.commands.list(), deadlineAt);
+        const previewProcesses = processes.filter((process) => {
             const command = [process.cmd, ...process.args].join(" ");
-            return process.cwd === PROJECT_ROOT && (/\bvite\b/.test(command) || /npm run dev/.test(command));
+            return process.cwd === PROJECT_ROOT && (/\bvite\b/.test(command) || /\bnext\b/.test(command) || /npm run (dev|start)/.test(command));
         });
-        for (const process of viteProcesses) {
-            await sandbox.commands.kill(process.pid).catch(() => false);
+        for (const process of previewProcesses) {
+            await withDeadline(sandbox.commands.kill(process.pid), deadlineAt).catch(() => false);
         }
     }
 
     if (!/^2\d\d$/.test(currentStatus) && !/^3\d\d$/.test(currentStatus) && !/^4(?!03)\d\d$/.test(currentStatus)) {
-        const script = String(scripts[scriptName]);
         let command: string;
         let envs: Record<string, string> | undefined;
         if (/\bvite\b/.test(script)) {
@@ -86,7 +76,7 @@ export async function startProjectPreview(projectId: string, emit: PreviewEmitte
         await emit({ event: "update", data: { message: "Starting the generated React app…" } });
         let serverOutput = "";
         try {
-            await sandbox.commands.run(command, {
+            const launch = sandbox.commands.run(command, {
                 cwd: PROJECT_ROOT,
                 background: true,
                 timeoutMs: PREVIEW_PROCESS_TIMEOUT_MS,
@@ -94,17 +84,22 @@ export async function startProjectPreview(projectId: string, emit: PreviewEmitte
                 onStdout: (output) => { serverOutput += output; },
                 onStderr: (output) => { serverOutput += output; },
             });
+            await withDeadline(launch, deadlineAt);
         } catch (error) {
             throw new Error(`Could not launch the React app. ${commandFailure(error)}`);
         }
 
-        const ready = await sandbox.commands.run(readyCheck, {
+        const readyCheckRequest = sandbox.commands.run(readyCheck, {
             cwd: PROJECT_ROOT,
-            timeoutMs: 35_000,
+            timeoutMs: remainingTimeout(deadlineAt, readyWaitMs + 5_000),
         });
+        const ready = await withDeadline(readyCheckRequest, deadlineAt);
         if (ready.stdout.trim() !== "ready") {
             const output = serverOutput.trim();
-            throw new Error(`The app did not start listening on its preview port within 30 seconds.${output ? ` Dev server output: ${output.slice(-1200)}` : " No server output was captured."}`);
+            const diagnostic = ready.stdout.trim() === "timeout"
+                ? "The entry point did not respond within 30 seconds."
+                : ready.stdout.trim().slice(0, DIAGNOSTIC_LOG_LIMIT);
+            throw new Error(`The app preview failed its entry-point check. ${diagnostic}${output ? ` Dev server output: ${output.slice(-1200)}` : " No server output was captured."}`);
         }
     }
 

@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import { db } from "../db/db";
 import { clearProjectSandboxCache, getProjectSandbox, PROJECT_ROOT } from "./workspace";
 import type { ToolResult } from "./types";
+import { remainingTimeout, withDeadline } from "./deadline";
 
 function projectFile(projectId: string, filePath: string): string {
     if (!filePath.trim()) throw new Error("A file path is required");
@@ -15,13 +16,23 @@ function projectFile(projectId: string, filePath: string): string {
     return destination;
 }
 
-export async function bash(commands: string, projectId: string): Promise<ToolResult> {
+export async function bash(commands: string, projectId: string, deadlineAt?: number): Promise<ToolResult> {
+    if (/\b(?:npm|bun)\s+(?:run\s+)?(?:test|build)\b|\b(?:vitest|tsc)\b|\bvite\s+build\b/i.test(commands)) {
+        return {
+            success: false,
+            output: "Tyox runs the test suite and production build after implementation. Do not repeat those checks; continue with the requested code changes.",
+        };
+    }
+
     try {
-        const sandbox = await getProjectSandbox(projectId);
-        const result = await sandbox.commands.run(commands, {
+        const sandboxRequest = getProjectSandbox(projectId);
+        const sandbox = deadlineAt ? await withDeadline(sandboxRequest, deadlineAt) : await sandboxRequest;
+        const timeoutMs = deadlineAt ? remainingTimeout(deadlineAt, 120_000) : 120_000;
+        const command = sandbox.commands.run(commands, {
             cwd: PROJECT_ROOT,
-            timeoutMs: 120_000,
+            timeoutMs,
         });
+        const result = deadlineAt ? await withDeadline(command, deadlineAt) : await command;
         const output = [result.stdout, result.stderr, result.error].filter(Boolean).join("\n").trim()
             || (result.exitCode === 0 ? "" : `Command exited with status ${result.exitCode}`);
         return { success: result.exitCode === 0, output };
@@ -44,6 +55,13 @@ export async function readfile(filePath: string, projectId: string): Promise<Too
 }
 
 export async function writefile(filePath: string, content: string, projectId: string): Promise<ToolResult> {
+    if (/^\s*\[Previous file contents omitted to fit the context budget\.\]\s*$/.test(content)) {
+        return {
+            success: false,
+            output: "This is a context-compaction placeholder, not source code. Read the current file and retry with the complete file contents.",
+        };
+    }
+
     try {
         const path = projectFile(projectId, filePath);
         const sandbox = await getProjectSandbox(projectId);

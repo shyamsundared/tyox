@@ -6,6 +6,7 @@ export const reactStarterFiles: Record<string, string> = {
         type: "module",
         scripts: {
             dev: "vite",
+            test: "vitest run",
             build: "tsc --noEmit && vite build",
             preview: "vite preview",
         },
@@ -18,9 +19,15 @@ export const reactStarterFiles: Record<string, string> = {
             "@types/react-dom": "^19.0.0",
             "@tailwindcss/vite": "^4.1.11",
             "@vitejs/plugin-react": "^4.3.4",
+            "@testing-library/dom": "^10.4.1",
+            "@testing-library/jest-dom": "^6.6.4",
+            "@testing-library/react": "^16.3.0",
+            "@testing-library/user-event": "^14.6.1",
+            jsdom: "^26.1.0",
             tailwindcss: "^4.1.11",
             typescript: "^5.7.2",
             vite: "^6.0.0",
+            vitest: "^4.0.0",
         },
     }, null, 2) + "\n",
     "index.html": `<!doctype html>
@@ -44,6 +51,19 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 });
+`,
+    "vitest.config.ts": `import { defineConfig, mergeConfig } from "vitest/config";
+import viteConfig from "./vite.config";
+
+export default mergeConfig(viteConfig, defineConfig({
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    clearMocks: true,
+  },
+}));
+`,
+    "src/test/setup.ts": `import "@testing-library/jest-dom/vitest";
 `,
     "tsconfig.json": JSON.stringify({
         compilerOptions: {
@@ -85,6 +105,17 @@ createRoot(document.getElementById("root")!).render(
     </main>
   );
 }
+`,
+    "src/App.test.tsx": `import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import App from "./App";
+
+describe("App", () => {
+  it("renders the starter page", () => {
+    render(<App />);
+    expect(screen.getByRole("heading", { name: "Let’s make something." })).toBeInTheDocument();
+  });
+});
 `,
     "src/index.css": `:root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

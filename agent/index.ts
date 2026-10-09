@@ -4,14 +4,17 @@ import { initializeProjectWorkspace } from "./workspace";
 import { startProjectPreview } from "./preview";
 import { db } from "../db/db";
 import { formatSseEvent } from "../shared/agent-events";
+import { AGENT_RUN_TIMEOUT_MS, withDeadline } from "./deadline";
+import { AGENT_MODEL } from "./context";
 
 const app = express();
 app.use(express.json());
 
 app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
+    const deadlineAt = Date.now() + AGENT_RUN_TIMEOUT_MS;
     try {
-        const result = await initializeProjectWorkspace(req.params.projectId);
-        const previewUrl = await startProjectPreview(req.params.projectId, async () => {});
+        const result = await withDeadline(initializeProjectWorkspace(req.params.projectId, deadlineAt), deadlineAt);
+        const previewUrl = await startProjectPreview(req.params.projectId, async () => {}, deadlineAt);
         res.json({ initialized: true, packagesInstalled: result.installedPackages, previewUrl });
     } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
@@ -139,5 +142,5 @@ app.post("/api/v1/agent/resume", async (req, res) => {
 });
 
 app.listen(3001, () => {
-    console.log("Agent backend listening on http://localhost:3001");
+    console.log(`Agent backend listening on http://localhost:3001 (model: ${AGENT_MODEL})`);
 });
