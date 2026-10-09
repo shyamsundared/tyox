@@ -1,10 +1,22 @@
 import express from "express";
 import { main, resume, type AgentEventEmitter, type AgentRunEvent, type WaitingForUser } from "./output";
+import { initializeProjectWorkspace } from "./workspace";
+import { startProjectPreview } from "./preview";
 import { db } from "../db/db";
 import { formatSseEvent } from "../shared/agent-events";
 
 const app = express();
 app.use(express.json());
+
+app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
+    try {
+        const result = await initializeProjectWorkspace(req.params.projectId);
+        const previewUrl = await startProjectPreview(req.params.projectId, async () => {});
+        res.json({ initialized: true, packagesInstalled: result.installedPackages, previewUrl });
+    } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+});
 
 type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name" | "project_id" | "question">;
 const resumingConversations = new Set<string>();
@@ -77,16 +89,7 @@ async function streamAgentEvents(
 }
 
 app.post("/api/v1/agent/loop", async (req, res) => {
-    const { conversation_id, message, project_id } = req.body as {
-        conversation_id?: string;
-        message?: string;
-        project_id?: string;
-    };
-    if (!conversation_id || typeof message !== "string" || !project_id) {
-        res.status(400).json({ error: "conversation_id, project_id, and message are required" });
-        return;
-    }
-
+    const { conversation_id, message, project_id } = req.body 
     await streamAgentEvents(res, (emit) => main(message, [], conversation_id, project_id, emit));
 });
 

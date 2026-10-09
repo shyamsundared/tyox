@@ -9,7 +9,8 @@ import type { FunctionResultStep, Step, UserInputStep } from "./types";
 import { client } from "./types";
 import type { Tool } from "./types";
 import { bashTool, createTodosTool, readTool, writeTool } from "./toolabs";
-import type { AgentClientEvent, CompleteEvent, QuestionEvent } from "../shared/agent-events";
+import type { AgentClientEvent, CompleteEvent, PreviewEvent, QuestionEvent, UpdateEvent } from "../shared/agent-events";
+import { startProjectPreview } from "./preview";
 
 export type WaitingForUser = {
     state: "waiting_for_user";
@@ -25,7 +26,9 @@ type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name" | "pr
 export type AgentRunEvent =
     | (QuestionEvent & { pendingRun: PendingRun })
     | (CompleteEvent & { conversationId: string })
-    | Extract<AgentClientEvent, { event: "error" }>;
+    | Extract<AgentClientEvent, { event: "error" }>
+    | PreviewEvent
+    | UpdateEvent;
 export type AgentEventEmitter = (event: AgentRunEvent) => Promise<void>;
 
 const tools = new Map<string, Tool>([
@@ -94,7 +97,20 @@ async function runLoop(
 
         for (const step of response.steps) {
             history.push(step);
+            if (step.type === "thought") {
+                const summary = (step.summary ?? [])
+                    .filter((part) => part.type === "text")
+                    .map((part) => part.text)
+                    .join("")
+                    .trim();
 
+                if (summary && summary !== "undefined") {
+                    await emit({
+                        event: "update",
+                        data: { message: summary },
+                    });
+                }
+            }
             if (step.type === "function_call") {
                 if (step.name === questionToolDefinition.name) {
                     const question = step.arguments.question;
@@ -138,11 +154,18 @@ async function runLoop(
             }
 
             if (step.type === "model_output") {
-                const message = (step.content ?? [])
+                let message = (step.content ?? [])
                     .filter((part) => part.type === "text")
                     .map((part) => part.text)
                     .join("");
                 if (!message.trim()) throw new Error("Agent returned an empty response");
+                try {
+                    const url = await startProjectPreview(project_id, emit);
+                    await emit({ event: "preview", data: { url } });
+                } catch (error) {
+                    const reason = error instanceof Error ? error.message : String(error);
+                    message += `\n\nI couldn't start the app preview: ${reason}`;
+                }
                 await emit({
                     event: "complete",
                     data: { message },
