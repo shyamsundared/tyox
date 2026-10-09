@@ -13,7 +13,16 @@ It listens on port 3001. Bun loads `GEMINI_API_KEY` and `E2B_API_KEY` from `agen
 
 Set `S3_BUCKET` and `AWS_REGION` in `agent/.env` to enable durable source snapshots. The AWS SDK uses its standard credential chain (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` locally, or an AWS role in hosted environments). `S3_PREFIX` is optional and defaults to `tyox/projects`. When a new E2B workspace is created, Tyox restores the project's latest `workspace.tar.gz`; after generation it uploads a new archive before validation. Archives exclude `node_modules`, `.git`, build output, and `.env` files. Without `S3_BUCKET`, the app continues to work but warns that source remains only in the active sandbox.
 
-Each project's file and shell tools connect to an E2B sandbox. Commands start in `/tmp/tyox-project`, are limited to two minutes, and run in the isolated sandbox rather than on the host. Internet access is enabled so generated projects can install packages; do not pass host secrets into the sandbox. The sandbox currently holds workspace files only until E2B expires or deletes it. S3 synchronization is a future step for durable storage.
+For local S3-compatible storage, copy `agent/.env.example` to `agent/.env`, then run these commands from the repository root:
+
+```sh
+docker compose --env-file agent/.env -f compose.local-s3.yaml up -d --wait
+cd agent && bun run s3:bucket
+```
+
+The local S3-compatible server is RustFS. Its S3 API is at `http://localhost:9000` and its console is at `http://localhost:9001`. It uses the same AWS SDK code as MinIO or AWS S3. For authentication, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in the agent must match `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` in the container. These credentials are for local development only. The bucket command is safe to rerun if the bucket already exists. To stop the server while keeping stored objects, run `docker compose --env-file agent/.env -f compose.local-s3.yaml down`; add `-v` only when you want to delete the local bucket data too.
+
+Each project's file and shell tools connect to an E2B sandbox. Commands start in `/tmp/tyox-project`, are limited to two minutes, and run in the isolated sandbox rather than on the host. Internet access is enabled so generated projects can install packages; do not pass host secrets into the sandbox. The sandbox holds the active workspace; source snapshots in S3 allow a replacement sandbox to restore project files. This snapshot mechanism is not a Git history and does not retain `node_modules` or generated build output.
 
 Creating a project initializes a Vite + React + TypeScript starter with Tailwind CSS in its E2B workspace and installs the starter packages. The agent's tools are directed to edit `src/App.tsx` and `src/index.css`, keeping the app runnable for the preview.
 

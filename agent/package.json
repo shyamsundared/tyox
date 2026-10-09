@@ -3,6 +3,10 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "s3:bucket": "bun run local-s3.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/express": "^5.0.6"
