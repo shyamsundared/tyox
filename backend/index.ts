@@ -61,7 +61,14 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
                 event: eventName,
                 data: JSON.parse(dataLines.join("\n")),
             } as AgentClientEvent;
-            const content = event.event === "question" ? event.data.question : event.data.message;
+            let content: string;
+            if (event.event === "question") {
+                content = event.data.question;
+            } else if (event.event === "complete") {
+                content = event.data.message;
+            } else {
+                return;
+            }
             if (!content.trim()) return;
             pendingWrites = pendingWrites.then(() => db.orm.public.Conversation.create({
                 conversation_id: conversationId,

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    paths-ignore:
+      - "prac/**"
+      - "Error_learning.md"
+      - "output/**"
+  pull_request:
+    paths-ignore:
+      - "prac/**"
+      - "Error_learning.md"
+      - "output/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install root dependencies
+        run: bun ci
+
+      - name: Install database dependencies
+        run: bun ci
+        working-directory: db
+
+      - name: Install agent dependencies
+        run: bun ci
+        working-directory: agent
+
+      - name: Install backend dependencies
+        run: bun ci
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: bun ci
+        working-directory: frontend
+
+      - name: Typecheck all application packages
+        run: bun run typecheck
+
+      - name: Build frontend
+        run: bun run build

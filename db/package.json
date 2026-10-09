@@ -16,6 +16,7 @@
     "dotenv": "^18.0.1"
   },
   "scripts": {
-    "contract:emit": "prisma contract emit"
+    "contract:emit": "prisma contract emit",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
