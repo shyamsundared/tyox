@@ -1,8 +1,13 @@
 {
   "name": "tyox",
-  "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev:agent": "bun --cwd agent run index.ts",
+    "dev:backend": "bun --cwd backend run index.ts",
+    "dev:frontend": "bun --cwd frontend run dev",
+    "db:contract:emit": "bun --cwd db run contract:emit"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
