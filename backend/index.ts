@@ -3,20 +3,12 @@ import express from "express";
 import bcrypt from "bcrypt";
 import type { Readable } from "node:stream";
 import { db } from "../db/db";
+import cors from "cors"
 import { formatSseEvent, type AgentClientEvent } from "../shared/agent-events";
-
+import {userschema,type user,initialproject} from "./types/types"
 const app = express();
 const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3002";
-app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", frontendOrigin);
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    if (req.method === "OPTIONS") {
-        res.sendStatus(204);
-        return;
-    }
-    next();
-});
+app.use(cors({origin:frontendOrigin}));
 app.use(express.json());
 
 app.get("/api/v1/:projectid/todos", async (req, res) => {
@@ -103,15 +95,13 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
 }
 
 app.post("/api/v1/projects", async (req, res) => {
-    const { user_id, title, initialPrompt = "" } = req.body as {
-        user_id?: string;
-        title?: string;
-        initialPrompt?: string;
-    };
-    if (!user_id || typeof title !== "string" || !title.trim() || typeof initialPrompt !== "string") {
-        res.status(400).json({ error: "user_id, title, and an optional initialPrompt are required" });
+    const body = req.body;
+    const result=initialproject.safeParse(body);
+    if(!result.success){
+        res.status(400).json({message:result.error});
         return;
     }
+    const {user_id,title,initialPrompt}=result.data;
     try {
         const user = await db.orm.public.User.where({ id: user_id }).first();
         if (!user) {
@@ -123,7 +113,24 @@ app.post("/api/v1/projects", async (req, res) => {
             title: title.trim(),
             initialPrompt: initialPrompt.trim(),
         });
-        res.status(201).json(project);
+        let workspaceError: string | undefined;
+        let previewUrl: string | undefined;
+        try {
+            const initialized = await axios.post<{ previewUrl: string }>(
+                `http://localhost:3001/api/v1/agent/projects/${project.id}/initialize`,
+            );
+            previewUrl = initialized.data.previewUrl;
+        } catch (error) {
+            const responseError = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+            workspaceError = typeof responseError === "string"
+                ? responseError
+                : error instanceof Error ? error.message : String(error);
+        }
+        res.status(201).json({
+            ...project,
+            ...(previewUrl ? { previewUrl } : {}),
+            ...(workspaceError ? { workspaceError } : {}),
+        });
     } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -173,11 +180,15 @@ app.get("/api/v1/projects/:projectid/conversations", async (req, res) => {
 
 app.post("/api/v1/signup", async (req, res) => {
     try {
-        const { username, password } = req.body as { username?: string; password?: string };
-        if (!username || !password) {
-            res.status(400).json({ error: "username and password are required" });
+        const body= req.body;
+        const result=userschema.safeParse(body);
+        if(!result.success){
+            res.status(400).json({
+                message:result.error
+            })
             return;
         }
+        const {username,password}=result.data;
         const hashpassword = await bcrypt.hash(password, 10);
         const response = await db.orm.public.User.create({ username, password: hashpassword });
         res.status(201).json({ id: response.id, username: response.username });
@@ -188,11 +199,13 @@ app.post("/api/v1/signup", async (req, res) => {
 
 app.post("/api/v1/login", async (req, res) => {
     try {
-        const { username, password } = req.body as { username?: string; password?: string };
-        if (!username || !password) {
-            res.status(400).json({ error: "username and password are required" });
+        const body=req.body;
+        const result=userschema.safeParse(body);
+        if(!result.success){
+            res.status(400).json({message:result.error});
             return;
         }
+        const {username,password}=result.data;
         const user = await db.orm.public.User.where({ username }).first();
         if (!user || !(await bcrypt.compare(password, user.password))) {
             res.status(401).json({ error: "invalid username or password" });
@@ -206,7 +219,7 @@ app.post("/api/v1/login", async (req, res) => {
 
 app.post("/api/v1/:projectid", async (req, res) => {
     const { projectid } = req.params;
-    const { message } = req.body as { message?: string };
+    const { message } = req.body;
     if (typeof message !== "string" || !message.trim()) {
         res.status(400).json({ error: "message is required" });
         return;

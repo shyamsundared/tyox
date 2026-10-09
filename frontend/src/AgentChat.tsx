@@ -6,7 +6,7 @@ import type { AgentClientEvent } from "../../shared/agent-events";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type PendingQuestion = { conversation_id: string; call_id: string; question: string };
-type Project = { id: string; title: string; initialPrompt: string };
+type Project = { id: string; title: string; initialPrompt: string; workspaceError?: string; previewUrl?: string };
 type Todo = { id: string; title: string; description: string | null; completed: boolean };
 type HistoryEntry = {
   id: string;
@@ -59,7 +59,7 @@ async function readAgentStream(response: Response, onEvent: (event: AgentClientE
   if (buffer.trim()) dispatch(buffer);
 }
 
-function eventMessage(event: AgentClientEvent): string {
+function eventMessage(event: Exclude<AgentClientEvent, { event: "update" | "preview" }>): string {
   switch (event.event) {
     case "question":
       return event.data.question;
@@ -88,6 +88,9 @@ export function AgentChat() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [activeView, setActiveView] = useState<"chat" | "preview">("chat");
 
   const authenticate = async (action: "login" | "signup") => {
     if (!username.trim() || !password) return;
@@ -113,6 +116,8 @@ export function AgentChat() {
       setMessages([]);
       setPending(null);
       setTodos([]);
+      setPreviewUrl("");
+      setActiveView("chat");
       return;
     }
     setBusy(true);
@@ -122,7 +127,10 @@ export function AgentChat() {
         requestJson<HistoryEntry[]>(`/api/v1/projects/${encodeURIComponent(id)}/conversations`),
         requestJson<Todo[]>(`/api/v1/${encodeURIComponent(id)}/todos`),
       ]);
+      const selectedProject = projects.find((project) => project.id === id);
       setProjectId(id);
+      setPreviewUrl(selectedProject?.previewUrl ?? "");
+      setActiveView(selectedProject?.previewUrl ? "preview" : "chat");
       setMessages(history.flatMap((entry) => entry.convos.map((message) => ({
         role: message.From === "USER" ? "user" as const : "assistant" as const,
         content: message.Content,
@@ -152,6 +160,9 @@ export function AgentChat() {
       setProjectTitle("");
       setInitialPrompt("");
       setProjectId(project.id);
+      setError(project.workspaceError ?? "");
+      setPreviewUrl(project.previewUrl ?? "");
+      setActiveView(project.previewUrl ? "preview" : "chat");
       setMessages([]);
       setPending(null);
       setTodos([]);
@@ -168,14 +179,35 @@ export function AgentChat() {
   };
 
   const handleEvent = (event: AgentClientEvent) => {
+    if (event.event === "update") {
+      const message = event.data?.message;
+      if (typeof message === "string" && message.trim() && message !== "undefined") {
+        setStatus(message);
+      }
+      return;
+    }
+
+    if (event.event === "preview") {
+      setPreviewUrl(event.data.url);
+      setActiveView("preview");
+      setProjects((current) => current.map((project) => project.id === projectId
+        ? { ...project, previewUrl: event.data.url }
+        : project));
+      return;
+    }
+
     const content = eventMessage(event);
     if (content) setMessages((current) => [...current, { role: "assistant", content }]);
     if (event.event === "question") setPending(event.data);
-    if (event.event === "complete") setPending(null);
+    if (event.event === "complete") {
+      setPending(null);
+      setStatus("");
+    }
   };
 
   const send = async (id: string, body: unknown, resume = false) => {
     setError("");
+    setStatus("");
     setBusy(true);
     try {
       const path = `/api/v1/${encodeURIComponent(id)}${resume ? "/answer" : ""}`;
@@ -240,24 +272,52 @@ export function AgentChat() {
           <form onSubmit={(event) => void createProject(event)} className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
             <Input value={projectTitle} onChange={(event) => setProjectTitle(event.target.value)} placeholder="New project title" aria-label="New project title" />
             <Input value={initialPrompt} onChange={(event) => setInitialPrompt(event.target.value)} placeholder="First task (optional)" aria-label="First task" />
-            <Button type="submit" className="sm:col-span-2" disabled={busy || !projectTitle.trim()}>Create project</Button>
+            <Button type="submit" className="sm:col-span-2" disabled={busy || !projectTitle.trim()}>
+              {busy ? "Setting up project…" : "Create project"}
+            </Button>
           </form>
         </section>
       )}
 
       {error && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">{error}</p>}
-
       {account && projectId && (
         <>
-          <section aria-live="polite" className="flex min-h-72 flex-col gap-3 rounded-lg border bg-card p-4">
+          <nav aria-label="Project views" className="flex gap-2">
+            <Button type="button" variant={activeView === "preview" ? "default" : "outline"} onClick={() => setActiveView("preview")} disabled={!previewUrl}>
+              App preview
+            </Button>
+            <Button type="button" variant={activeView === "chat" ? "default" : "outline"} onClick={() => setActiveView("chat")}>
+              Chat
+            </Button>
+            {previewUrl && <a className="ml-auto self-center text-sm underline" href={previewUrl} target="_blank" rel="noreferrer">Open preview in new tab</a>}
+          </nav>
+
+          {activeView === "preview" ? (
+            <section className="overflow-hidden rounded-lg border bg-card">
+              {previewUrl ? (
+                <iframe
+                  title="Generated React app preview"
+                  src={previewUrl}
+                  sandbox="allow-scripts allow-forms allow-same-origin"
+                  className="h-[70vh] min-h-[32rem] w-full bg-white"
+                />
+              ) : (
+                <div className="grid min-h-72 place-items-center p-6 text-center text-sm text-muted-foreground">
+                  Send the agent a request to build an app. Its preview will appear here when it starts.
+                </div>
+              )}
+            </section>
+          ) : (
+            <section aria-live="polite" className="flex min-h-72 flex-col gap-3 rounded-lg border bg-card p-4">
             {messages.length === 0 && <p className="m-auto text-sm text-muted-foreground">Your conversation will appear here.</p>}
             {messages.map((message, index) => (
               <article key={`${index}-${message.role}`} className={`max-w-[90%] whitespace-pre-wrap rounded-lg px-4 py-3 text-sm ${message.role === "user" ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-muted"}`}>
                 {message.content}
               </article>
             ))}
-            {busy && <p className="text-sm text-muted-foreground">Agent is working…</p>}
-          </section>
+            {busy && <p role="status" className="text-sm text-muted-foreground">{status || "Agent is working…"}</p>}
+            </section>
+          )}
 
           {todos.length > 0 && <section className="rounded-lg border p-4">
             <h2 className="mb-3 font-semibold">Project tasks</h2>
