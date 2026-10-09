@@ -4,7 +4,7 @@ import type { Tooldef } from "./types";
 export const bashToolDefinition: Tooldef = {
     type: "function",
     name: "Bash_Tool",
-    description: "Run a shell command in the current project directory.",
+    description: "Run a shell command in the current Vite + React + TypeScript project directory. Use this to inspect, build, or run the existing React app; do not replace the project with a standalone HTML page.",
     parameters: {
         type: Type.OBJECT,
         properties: {
@@ -17,7 +17,7 @@ export const bashToolDefinition: Tooldef = {
 export const readToolDefinition: Tooldef = {
     type: "function",
     name: "Read_File",
-    description: "Read a file from the current project.",
+    description: "Read a file from the current Vite + React + TypeScript project. The app UI is normally in src/App.tsx and its styles are in src/index.css.",
     parameters: {
         type: Type.OBJECT,
         properties: {
@@ -30,7 +30,7 @@ export const readToolDefinition: Tooldef = {
 export const writeToolDefinition: Tooldef = {
     type: "function",
     name: "Write_File",
-    description: "Write the supplied content to a file in the current project.",
+    description: "Write a project file. This workspace is already a Vite + React + TypeScript app: put page UI in src/App.tsx and styles in src/index.css. Keep package.json, index.html, and src/main.tsx as the app setup unless the user explicitly asks to change the setup.",
     parameters: {
         type: Type.OBJECT,
         properties: {

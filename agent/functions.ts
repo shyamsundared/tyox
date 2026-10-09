@@ -1,46 +1,44 @@
-import { exec } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { posix } from "node:path";
 import { db } from "../db/db";
+import { clearProjectSandboxCache, getProjectSandbox, PROJECT_ROOT } from "./workspace";
 import type { ToolResult } from "./types";
-
-const projectsRoot = resolve(process.env.TYOX_PROJECTS_DIR ?? resolve(import.meta.dir, "../backend/projects"));
-
-function projectDirectory(projectId: string): string {
-    if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) throw new Error("Invalid project ID");
-    return resolve(projectsRoot, projectId);
-}
 
 function projectFile(projectId: string, filePath: string): string {
     if (!filePath.trim()) throw new Error("A file path is required");
-    const root = projectDirectory(projectId);
-    const destination = resolve(root, filePath);
-    const pathFromRoot = relative(root, destination);
-    if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) {
+    if (filePath.includes("\\") || posix.isAbsolute(filePath)) {
+        throw new Error("File paths must stay inside the project directory");
+    }
+    const destination = posix.resolve(PROJECT_ROOT, filePath);
+    if (destination !== PROJECT_ROOT && !destination.startsWith(`${PROJECT_ROOT}/`)) {
         throw new Error("File paths must stay inside the project directory");
     }
     return destination;
 }
 
 export async function bash(commands: string, projectId: string): Promise<ToolResult> {
-    const cwd = projectDirectory(projectId);
-    await mkdir(cwd, { recursive: true });
-    return new Promise((resolveResult) => {
-        exec(commands, { cwd, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
-            const output = [stdout, stderr].filter(Boolean).join("\n").trim();
-            resolveResult({
-                success: !error,
-                output: error ? `${output}${output ? "\n" : ""}${error.message}` : output,
-            });
+    try {
+        const sandbox = await getProjectSandbox(projectId);
+        const result = await sandbox.commands.run(commands, {
+            cwd: PROJECT_ROOT,
+            timeoutMs: 120_000,
         });
-    });
+        const output = [result.stdout, result.stderr, result.error].filter(Boolean).join("\n").trim()
+            || (result.exitCode === 0 ? "" : `Command exited with status ${result.exitCode}`);
+        return { success: result.exitCode === 0, output };
+    } catch (error) {
+        clearProjectSandboxCache(projectId);
+        return { success: false, output: error instanceof Error ? error.message : String(error) };
+    }
 }
 
 export async function readfile(filePath: string, projectId: string): Promise<ToolResult> {
     try {
-        const data = await readFile(projectFile(projectId, filePath), "utf8");
+        const path = projectFile(projectId, filePath);
+        const sandbox = await getProjectSandbox(projectId);
+        const data = await sandbox.files.read(path);
         return { success: true, output: data };
     } catch (error) {
+        clearProjectSandboxCache(projectId);
         return { success: false, output: error instanceof Error ? error.message : String(error) };
     }
 }
@@ -48,10 +46,11 @@ export async function readfile(filePath: string, projectId: string): Promise<Too
 export async function writefile(filePath: string, content: string, projectId: string): Promise<ToolResult> {
     try {
         const path = projectFile(projectId, filePath);
-        await mkdir(dirname(path), { recursive: true });
-        await writeFile(path, content, "utf8");
+        const sandbox = await getProjectSandbox(projectId);
+        await sandbox.files.write(path, content);
         return { success: true, output: `Wrote ${filePath}` };
     } catch (error) {
+        clearProjectSandboxCache(projectId);
         return { success: false, output: error instanceof Error ? error.message : String(error) };
     }
 }
