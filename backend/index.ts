@@ -298,6 +298,10 @@ app.post("/api/v1/:projectid/answer", async (req, res) => {
     }
 });
 
-app.listen(3000, () => {
-    console.log("Backend listening on http://localhost:3000");
-});
+if (import.meta.main) {
+    app.listen(3000, () => {
+        console.log("Backend listening on http://localhost:3000");
+    });
+}
+
+export { app };
