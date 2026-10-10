@@ -6,6 +6,7 @@
     "dev:agent": "bun run --cwd agent index.ts",
     "dev:backend": "bun run --cwd backend index.ts",
     "dev:frontend": "bun run --cwd frontend dev",
+    "test:backend": "bun run --cwd backend test",
     "db:contract:emit": "bun run --cwd db contract:emit",
     "typecheck": "bun run --cwd db typecheck && bun run --cwd agent typecheck && bun run --cwd backend typecheck && bun run --cwd frontend typecheck",
     "build": "bun run --cwd frontend build"

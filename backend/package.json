@@ -20,6 +20,7 @@
     "zod": "^4.6.5"
   },
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

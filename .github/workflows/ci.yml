@@ -57,5 +57,8 @@ jobs:
       - name: Typecheck all application packages
         run: bun run typecheck
 
+      - name: Test backend project and conversation flows
+        run: bun run test:backend
+
       - name: Build frontend
         run: bun run build
