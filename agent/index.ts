@@ -93,7 +93,7 @@ async function streamAgentEvents(
 
 app.post("/api/v1/agent/loop", async (req, res) => {
     const { conversation_id, message, project_id } = req.body 
-    await streamAgentEvents(res, (emit) => main(message, [], conversation_id, project_id, emit));
+    await streamAgentEvents(res, (emit) => main(message, conversation_id, project_id, emit));
 });
 
 app.post("/api/v1/agent/resume", async (req, res) => {

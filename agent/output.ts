@@ -16,6 +16,8 @@ import { AGENT_RUN_TIMEOUT_MS, remainingTimeout, timeoutError, withDeadline } fr
 import { AGENT_MODEL, AGENT_SYSTEM_INSTRUCTION, AGENT_TOOL_DEFINITIONS, MAX_CONTEXT_TOKENS, prepareAgentContext } from "./context";
 import { getProjectSandbox } from "./workspace";
 import { isProjectStorageEnabled, saveProjectSnapshot } from "./storage";
+import { createAgentRunMetrics, logAgentRunMetrics } from "./metrics";
+import type { ValidationMetrics } from "./metrics";
 
 export type WaitingForUser = {
     state: "waiting_for_user";
@@ -71,6 +73,7 @@ async function requestNextTurn(
     turn: number,
     deadlineAt: number,
     emit: AgentEventEmitter,
+    metrics: ReturnType<typeof createAgentRunMetrics>,
 ) {
     const controller = new AbortController();
     const startedAt = Date.now();
@@ -125,6 +128,12 @@ async function requestNextTurn(
             system_instruction: AGENT_SYSTEM_INSTRUCTION,
             tools: AGENT_TOOL_DEFINITIONS,
         }, { signal: controller.signal });
+        if (typeof response.usage?.total_input_tokens === "number") {
+            metrics.inputTokens = (metrics.inputTokens ?? 0) + response.usage.total_input_tokens;
+        }
+        if (typeof response.usage?.total_output_tokens === "number") {
+            metrics.outputTokens = (metrics.outputTokens ?? 0) + response.usage.total_output_tokens;
+        }
         console.info(JSON.stringify({
             event: "gemini_request_completed",
             conversationId: convo_id,
@@ -151,6 +160,7 @@ async function requestNextTurn(
         }
         throw error;
     } finally {
+        metrics.modelCycleDurationMs += Date.now() - startedAt;
         clearTimeout(timeout);
         clearInterval(progress);
     }
@@ -182,19 +192,14 @@ function describeToolCompletion(name: string, args: Record<string, unknown>): st
 
 export async function main(
     input: string,
-    ctx: string[],
     convo_id: string,
     project_id: string,
     emit: AgentEventEmitter,
 ): Promise<void> {
-    const history: Step[] = ctx.map((text): UserInputStep => ({
-        type: "user_input",
-        content: [{ text, type: "text" }],
-    }));
-    history.push({
+    const history: Step[] = [{
         type: "user_input",
         content: [{ text: input, type: "text" }],
-    });
+    }];
 
     await runLoop(history, convo_id, project_id, emit);
 }
@@ -225,7 +230,16 @@ async function runLoop(
     emit: AgentEventEmitter,
 ): Promise<void> {
     const deadlineAt = Date.now() + AGENT_RUN_TIMEOUT_MS;
-    await withDeadline(runLoopUntilDeadline(history, convo_id, project_id, emit, deadlineAt), deadlineAt);
+    const metrics = createAgentRunMetrics(convo_id, project_id);
+    try {
+        await withDeadline(runLoopUntilDeadline(history, convo_id, project_id, emit, deadlineAt, metrics), deadlineAt);
+    } catch (error) {
+        metrics.outcome = "failed";
+        metrics.errorType = error instanceof Error ? error.name : "unknown";
+        throw error;
+    } finally {
+        logAgentRunMetrics(metrics);
+    }
 }
 
 async function runLoopUntilDeadline(
@@ -234,6 +248,7 @@ async function runLoopUntilDeadline(
     project_id: string,
     emit: AgentEventEmitter,
     deadlineAt: number,
+    metrics: ReturnType<typeof createAgentRunMetrics>,
 ): Promise<void> {
     let previewRepairAttempts = 0;
     let turn = 0;
@@ -245,7 +260,8 @@ async function runLoopUntilDeadline(
             throw new Error(`Agent stopped after ${MAX_AGENT_TURNS} model turns without finishing. Try a more specific request.`);
         }
         turn += 1;
-        const response = await requestNextTurn(history, convo_id, project_id, turn, deadlineAt, emit);
+        metrics.modelTurns = turn;
+        const response = await requestNextTurn(history, convo_id, project_id, turn, deadlineAt, emit, metrics);
 
         for (const step of response.steps) {
             history.push(step);
@@ -264,6 +280,7 @@ async function runLoopUntilDeadline(
                 }
             }
             if (step.type === "function_call") {
+                metrics.toolCalls += 1;
                 if (step.name === questionToolDefinition.name) {
                     try {
                         const version = await saveWorkspaceCheckpoint(project_id, deadlineAt, emit);
@@ -298,6 +315,7 @@ async function runLoopUntilDeadline(
                         },
                         pendingRun,
                     });
+                    metrics.outcome = "waiting_for_user";
                     return;
                 }
 
@@ -330,6 +348,7 @@ async function runLoopUntilDeadline(
                     && output.success === false;
 
                 if (toolFailed || returnedFailure) {
+                    metrics.failedToolCalls += 1;
                     await emit({
                         event: "update",
                         data: { message: "That action failed; the agent is checking the error…" },
@@ -369,13 +388,39 @@ async function runLoopUntilDeadline(
                     await emit({ event: "update", data: { message: "Could not save the project snapshot to S3; continuing validation." } });
                 }
                 try {
-                    await validateProject(project_id, emit, deadlineAt);
-                    const url = await startProjectPreview(project_id, emit, deadlineAt);
+                    const validationRun: ValidationMetrics = {
+                        tests: "not_run",
+                        build: "not_run",
+                        result: "failed",
+                        durationMs: 0,
+                    };
+                    metrics.validationRuns.push(validationRun);
+                    const validationStartedAt = Date.now();
+                    try {
+                        await validateProject(project_id, emit, deadlineAt, (stage, status) => {
+                            validationRun[stage] = status;
+                        });
+                        validationRun.result = "passed";
+                    } finally {
+                        validationRun.durationMs = Date.now() - validationStartedAt;
+                    }
+
+                    const previewAttempt = { result: "failed" as "ready" | "failed", durationMs: 0 };
+                    metrics.previewAttempts.push(previewAttempt);
+                    const previewStartedAt = Date.now();
+                    let url: string;
+                    try {
+                        url = await startProjectPreview(project_id, emit, deadlineAt);
+                        previewAttempt.result = "ready";
+                    } finally {
+                        previewAttempt.durationMs = Date.now() - previewStartedAt;
+                    }
                     await emit({ event: "preview", data: { url } });
                 } catch (error) {
                     const reason = error instanceof Error ? error.message : String(error);
                     if (previewRepairAttempts < MAX_PREVIEW_REPAIR_ATTEMPTS) {
                         previewRepairAttempts += 1;
+                        metrics.repairAttempts = previewRepairAttempts;
                         await emit({
                             event: "update",
                             data: {
@@ -407,6 +452,7 @@ async function runLoopUntilDeadline(
                         },
                         conversationId: convo_id,
                     });
+                    metrics.outcome = "validation_failed";
                     return;
                 }
                 await emit({
@@ -414,6 +460,7 @@ async function runLoopUntilDeadline(
                     data: { message: storageWarning ? `${message}\n\n${storageWarning}` : message },
                     conversationId: convo_id,
                 });
+                metrics.outcome = "completed";
                 return;
             }
         }
