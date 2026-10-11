@@ -65,6 +65,15 @@ export async function readAgentStream(
   if (buffer.trim()) dispatch(buffer);
 }
 
+export async function sendAgentRequest(
+  path: string,
+  body: unknown,
+  onEvent: (event: AgentClientEvent) => void,
+): Promise<void> {
+  const response = await fetch(`${API_ORIGIN}${path}`, jsonBody(body));
+  await readAgentStream(response, onEvent);
+}
+
 export function eventMessage(
   event: Exclude<AgentClientEvent, { event: "update" | "preview" }>,
 ): string {

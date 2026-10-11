@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, type FormEvent } from "react";
 import type { AgentClientEvent } from "../../shared/agent-events";
-import { eventMessage, jsonBody, readAgentStream, requestJson } from "./agent-api";
+import { eventMessage, jsonBody, readAgentStream, requestJson, sendAgentRequest } from "./agent-api";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type PendingQuestion = { conversation_id: string; call_id: string; question: string };
@@ -173,8 +173,7 @@ export function AgentChat() {
     setBusy(true);
     try {
       const path = `/api/v1/${encodeURIComponent(id)}${resume ? "/answer" : ""}`;
-      const response = await fetch(`${API_ORIGIN}${path}`, jsonBody(body));
-      await readAgentStream(response, handleEvent);
+      await sendAgentRequest(path, body, handleEvent);
       if (account) {
         const refreshed = await requestJson<Todo[]>(`/api/v1/${encodeURIComponent(id)}/todos`);
         setTodos(refreshed);
