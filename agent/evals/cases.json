@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "event-signup-page",
+      "category": "new-project",
+      "setup": "Create a fresh project from the default React starter.",
+      "turns": [
+        "Build a clean event signup page for Community Meetup. Include a clear heading, a short description, an email field, and a Reserve a seat button."
+      ],
+      "acceptance": [
+        "The preview loads without a browser error.",
+        "The page has a Community Meetup heading, an email field with a visible label, and a Reserve a seat button.",
+        "The project tests and production build pass."
+      ]
+    },
+    {
+      "id": "recipe-page",
+      "category": "new-project",
+      "setup": "Create a fresh project from the default React starter.",
+      "turns": [
+        "Create a recipe page for Miso Noodles with an ingredients list, preparation steps, and a Save recipe button. Keep the layout readable on a phone."
+      ],
+      "acceptance": [
+        "The preview loads without a browser error.",
+        "The page includes the Miso Noodles title, ingredients, preparation steps, and a Save recipe button.",
+        "The project tests and production build pass."
+      ]
+    },
+    {
+      "id": "follow-up-change",
+      "category": "multi-turn-edit",
+      "setup": "Use one fresh project and conversation for both turns.",
+      "turns": [
+        "Build a simple task list with an Add task button and a text field.",
+        "Change the Add task button to blue, but keep the task list and text field working."
+      ],
+      "acceptance": [
+        "After turn two, the preview still has the task list and text field.",
+        "The Add task button is blue and its existing action still works.",
+        "The project tests and production build pass after the follow-up."
+      ]
+    },
+    {
+      "id": "multi-component-page",
+      "category": "multi-file-edit",
+      "setup": "Create a fresh project from the default React starter.",
+      "turns": [
+        "Build a small product dashboard with a page title, three summary cards, and a recent activity list. Use separate React components where that makes the code easier to follow."
+      ],
+      "acceptance": [
+        "The preview shows the title, three distinct summary cards, and a recent activity list.",
+        "The page remains usable at a narrow mobile width.",
+        "The project tests and production build pass."
+      ]
+    },
+    {
+      "id": "clarifying-question",
+      "category": "question-and-resume",
+      "setup": "Create a fresh project from the default React starter.",
+      "turns": [
+        "Build a booking form for my business."
+      ],
+      "acceptance": [
+        "The agent asks one useful clarifying question before making assumptions that materially affect the form.",
+        "After answering, the agent resumes the same conversation and produces a passing preview."
+      ]
+    },
+    {
+      "id": "repair-after-build-error",
+      "category": "validation-recovery",
+      "setup": "Start from a fixture with one known TypeScript build error and record the original error.",
+      "turns": [
+        "Fix the existing build error while keeping the current page behavior intact."
+      ],
+      "acceptance": [
+        "The first validation failure is reported to the agent.",
+        "The agent makes a focused repair and the next build passes, or reports a clear failure after the configured single repair attempt."
+      ]
+    }
+  ]
+}
