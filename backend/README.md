@@ -9,4 +9,4 @@ bun install
 bun run index.ts
 ```
 
-It listens on port 3000. Set `FRONTEND_ORIGIN` if the frontend is running at a different origin. The agent URL is currently `http://localhost:3001` in `index.ts`.
+It listens on `PORT` (3000 by default). Set `FRONTEND_ORIGIN` to the frontend's origin and `AGENT_ORIGIN` to the agent service's base URL. Locally, the agent defaults to `http://localhost:3001`.

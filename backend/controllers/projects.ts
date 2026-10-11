@@ -3,6 +3,8 @@ import type { Request, Response } from "express";
 import { db } from "../../db/db";
 import { initialproject } from "../types/types";
 
+const agentOrigin = process.env.AGENT_ORIGIN ?? "http://localhost:3001";
+
 export async function getTodos(req: Request<{ projectid: string }>, res: Response) {
     try {
         const { projectid } = req.params;
@@ -46,7 +48,7 @@ export async function createProject(req: Request, res: Response) {
         let previewUrl: string | undefined;
         try {
             const initialized = await axios.post<{ previewUrl: string }>(
-                `http://localhost:3001/api/v1/agent/projects/${project.id}/initialize`,
+                `${agentOrigin}/api/v1/agent/projects/${project.id}/initialize`,
             );
             previewUrl = initialized.data.previewUrl;
         } catch (error) {

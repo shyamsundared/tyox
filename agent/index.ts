@@ -141,6 +141,9 @@ app.post("/api/v1/agent/resume", async (req, res) => {
     }
 });
 
-app.listen(3001, () => {
-    console.log(`Agent backend listening on http://localhost:3001 (model: ${AGENT_MODEL})`);
+app.get("/health", (_req, res) => res.status(200).send("ok"));
+
+const port = Number(process.env.PORT ?? 3001);
+app.listen(port, "0.0.0.0", () => {
+    console.log(`Agent backend listening on port ${port} (model: ${AGENT_MODEL})`);
 });

@@ -1,0 +1,12 @@
+.git
+**/.git
+**/node_modules
+**/.env
+**/.env.*
+**/dist
+**/coverage
+backend/projects
+prac
+output
+Error_learning.md
+AGENTS.md
