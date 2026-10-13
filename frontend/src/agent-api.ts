@@ -1,9 +1,22 @@
 import type { AgentClientEvent } from "../../shared/agent-events";
 
 const API_ORIGIN = (window as Window & { TYOX_API_URL?: string }).TYOX_API_URL || "http://localhost:3000";
+const TOKEN_KEY = "tyox_access_token";
+
+export function saveAuthToken(token: string | null) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+function withAuth(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return { ...init, headers };
+}
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_ORIGIN}${path}`, init);
+  const response = await fetch(`${API_ORIGIN}${path}`, withAuth(init));
   const body = await response.text();
   let data: unknown = null;
 
@@ -70,7 +83,7 @@ export async function sendAgentRequest(
   body: unknown,
   onEvent: (event: AgentClientEvent) => void,
 ): Promise<void> {
-  const response = await fetch(`${API_ORIGIN}${path}`, jsonBody(body));
+  const response = await fetch(`${API_ORIGIN}${path}`, withAuth(jsonBody(body)));
   await readAgentStream(response, onEvent);
 }
 

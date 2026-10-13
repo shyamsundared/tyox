@@ -6,9 +6,29 @@ import { db } from "../db/db";
 import { formatSseEvent } from "../shared/agent-events";
 import { AGENT_RUN_TIMEOUT_MS, withDeadline } from "./deadline";
 import { AGENT_MODEL } from "./context";
+import { timingSafeEqual } from "node:crypto";
 
 const app = express();
 app.use(express.json());
+
+const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
+if (process.env.NODE_ENV === "production" && !process.env.AGENT_API_KEY) {
+    throw new Error("AGENT_API_KEY must be configured in production");
+}
+if (process.env.NODE_ENV === "production" && Buffer.byteLength(agentApiKey) < 32) {
+    throw new Error("AGENT_API_KEY must contain at least 32 bytes in production");
+}
+
+app.use("/api/v1/agent", (req, res, next) => {
+    const providedKey = req.header("x-agent-key") ?? "";
+    const expected = Buffer.from(agentApiKey);
+    const provided = Buffer.from(providedKey);
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+        res.status(401).json({ error: "agent service authentication required" });
+        return;
+    }
+    next();
+});
 
 app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
     const deadlineAt = Date.now() + AGENT_RUN_TIMEOUT_MS;

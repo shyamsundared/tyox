@@ -5,6 +5,7 @@ import { db } from "../../db/db";
 import { formatSseEvent, type AgentClientEvent } from "../../shared/agent-events";
 
 const agentOrigin = process.env.AGENT_ORIGIN ?? "http://localhost:3001";
+const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
 
 function startSse(res: express.Response) {
     res.status(200);
@@ -78,6 +79,11 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
 
 export async function getConversationHistory(req: express.Request<{ projectid: string }>, res: express.Response) {
     try {
+        const project = await db.orm.public.Project.where({ id: req.params.projectid, userid: req.userId }).first();
+        if (!project) {
+            res.status(404).json({ error: "project not found" });
+            return;
+        }
         const histories = await db.orm.public.ConversationHistory
             .where({ projectId: req.params.projectid })
             .include("convos", (convos) => convos.orderBy((conversation) => conversation.createdAt.asc()))
@@ -115,7 +121,7 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
     }
 
     try {
-        const project = await db.orm.public.Project.where({ id: projectid }).first();
+        const project = await db.orm.public.Project.where({ id: projectid, userid: req.userId }).first();
         if (!project) {
             res.status(404).json({ error: "project not found" });
             return;
@@ -132,7 +138,7 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
         const agentResponse = await axios.post(
             `${agentOrigin}/api/v1/agent/loop`,
             { conversation_id: conversation.id, message, project_id: projectid },
-            { responseType: "stream" },
+            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
         );
         relayAgentStream(agentResponse.data, res, conversation.id);
     } catch (error) {
@@ -153,6 +159,11 @@ export async function answerQuestion(req: express.Request<{ projectid: string }>
     }
 
     try {
+        const project = await db.orm.public.Project.where({ id: projectid, userid: req.userId }).first();
+        if (!project) {
+            res.status(404).json({ error: "project not found" });
+            return;
+        }
         const conversation = await db.orm.public.ConversationHistory
             .where({ id: conversation_id, projectId: projectid })
             .first();
@@ -171,7 +182,7 @@ export async function answerQuestion(req: express.Request<{ projectid: string }>
         const agentResponse = await axios.post(
             `${agentOrigin}/api/v1/agent/resume`,
             { conversation_id, call_id, answer },
-            { responseType: "stream" },
+            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
         );
         relayAgentStream(agentResponse.data, res, conversation_id);
     } catch (error) {
