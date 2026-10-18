@@ -10,9 +10,12 @@ app.use(express.json());
 app.use("/api/v1", routes);
 
 if (import.meta.main) {
-    app.listen(3000, () => {
-        console.log("Backend listening on http://localhost:3000");
+    const port = Number(process.env.PORT ?? 3000);
+    app.listen(port, "0.0.0.0", () => {
+        console.log(`Backend listening on port ${port}`);
     });
 }
+
+app.get("/health", (_req, res) => res.status(200).send("ok"));
 
 export { app };

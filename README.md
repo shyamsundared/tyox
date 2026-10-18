@@ -57,6 +57,7 @@ The agent's file and shell tools use one E2B sandbox per project. Sandbox metada
 
 ## Project notes
 
+- See [`deploy/README.md`](deploy/README.md) for the Railway deployment setup.
 - `prac/` is a personal practice area and is not part of the app.
 - `backend/projects/` contains local generated projects and is ignored by Git.
 - `Error_learning.md` records development errors and what they taught me.

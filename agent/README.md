@@ -9,7 +9,7 @@ bun install
 bun run index.ts
 ```
 
-It listens on port 3001. Bun loads `GEMINI_API_KEY` and `E2B_API_KEY` from `agent/.env`. The agent also loads `DATABASE_URL` from `db/.env` through the shared database module.
+It listens on port 3001. Bun loads `GEMINI_API_KEY` and `E2B_API_KEY` from `agent/.env`. The agent also loads `DATABASE_URL` from `db/.env` through the shared database module. Set `AGENT_API_KEY` to the same private value configured on the backend in production (at least 32 bytes); the backend uses this key to authenticate its internal agent requests. Never expose it to the frontend.
 
 Set `S3_BUCKET` and `AWS_REGION` in `agent/.env` to enable durable source snapshots. The AWS SDK uses its standard credential chain (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` locally, or an AWS role in hosted environments). `S3_PREFIX` is optional and defaults to `tyox/projects`. When a new E2B workspace is created, Tyox restores the project's latest `workspace.tar.gz`; after generation it uploads a new archive before validation. Archives exclude `node_modules`, `.git`, build output, and `.env` files. Without `S3_BUCKET`, the app continues to work but warns that source remains only in the active sandbox.
 

@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { AgentClientEvent } from "../../shared/agent-events";
-import { eventMessage, jsonBody, readAgentStream, requestJson, sendAgentRequest } from "./agent-api";
+import { ApiError, eventMessage, getSavedAccount, jsonBody, requestJson, saveAuthToken, sendAgentRequest } from "./agent-api";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type PendingQuestion = { conversation_id: string; call_id: string; question: string };
@@ -15,6 +15,7 @@ type HistoryEntry = {
   pendingQuestion: PendingQuestion | null;
 };
 type Account = { id: string; username: string };
+type AuthResponse = Account & { token: string };
 
 function Icon({ name, size = 18 }: { name: "plus" | "message" | "monitor" | "external" | "refresh" | "send" | "spark" | "folder"; size?: number }) {
   const paths = {
@@ -33,7 +34,7 @@ function Icon({ name, size = 18 }: { name: "plus" | "message" | "monitor" | "ext
 export function AgentChat() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [account, setAccount] = useState<Account | null>(null);
+  const [account, setAccount] = useState<Account | null>(() => getSavedAccount());
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
@@ -50,15 +51,40 @@ export function AgentChat() {
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
 
+  useEffect(() => {
+    const userId = account?.id;
+    if (!userId) return;
+
+    let active = true;
+    requestJson<Project[]>(`/api/v1/users/${encodeURIComponent(userId)}/projects`)
+      .then((ownedProjects) => {
+        if (active) setProjects(ownedProjects);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        if (cause instanceof ApiError && cause.status === 401) {
+          saveAuthToken(null);
+          setAccount(null);
+          setProjects([]);
+          setError("Your session expired. Please sign in again.");
+          return;
+        }
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [account?.id]);
+
   const authenticate = async (action: "login" | "signup") => {
     if (!username.trim() || !password) return;
     setBusy(true);
     setError("");
     try {
-      const result = await requestJson<Account>(`/api/v1/${action}`, jsonBody({ username: username.trim(), password }));
+      const result = await requestJson<AuthResponse>(`/api/v1/${action}`, jsonBody({ username: username.trim(), password }));
+      saveAuthToken(result.token, result);
       setAccount(result);
-      const ownedProjects = await requestJson<Project[]>(`/api/v1/users/${encodeURIComponent(result.id)}/projects`);
-      setProjects(ownedProjects);
       setProjectId("");
       setPassword("");
     } catch (cause) {
@@ -110,7 +136,6 @@ export function AgentChat() {
     let starter: { id: string; message: string } | null = null;
     try {
       const project = await requestJson<Project>("/api/v1/projects", jsonBody({
-        user_id: account.id,
         title: projectTitle.trim(),
         initialPrompt: initialPrompt.trim(),
       }));
@@ -298,6 +323,7 @@ export function AgentChat() {
           <div className="account-summary"><strong>{account.username}</strong><span>Personal workspace</span></div>
           <Button type="button" variant="ghost" className="sign-out-button" aria-label="Sign out" title="Sign out" onClick={() => {
             setAccount(null); setProjectId(""); setProjects([]); setMessages([]); setTodos([]); setPending(null); setPreviewUrl(""); setError(""); setStatus("");
+            saveAuthToken(null);
           }}>Sign out</Button>
         </div>
       </aside>
