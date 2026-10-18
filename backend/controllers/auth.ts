@@ -8,7 +8,7 @@ export async function signup(req: Request, res: Response) {
     try {
         const result = userschema.safeParse(req.body);
         if (!result.success) {
-            res.status(400).json({ message: result.error });
+            res.status(400).json({ error: result.error.issues.map((issue) => issue.message).join(". ") });
             return;
         }
 
@@ -25,7 +25,7 @@ export async function login(req: Request, res: Response) {
     try {
         const result = userschema.safeParse(req.body);
         if (!result.success) {
-            res.status(400).json({ message: result.error });
+            res.status(400).json({ error: result.error.issues.map((issue) => issue.message).join(". ") });
             return;
         }
 

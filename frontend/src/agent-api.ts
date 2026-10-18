@@ -64,7 +64,9 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   if (!response.ok) {
     const message = data && typeof data === "object" && "error" in data
       ? (data as { error: unknown }).error
-      : data;
+      : data && typeof data === "object" && "message" in data
+        ? (data as { message: unknown }).message
+        : data;
     throw new ApiError(typeof message === "string" ? message : `Request failed (${response.status})`, response.status);
   }
 
