@@ -6,7 +6,7 @@ import { db } from "../db/db";
 import { formatSseEvent } from "../shared/agent-events";
 import { AGENT_RUN_TIMEOUT_MS, withDeadline } from "./deadline";
 import { AGENT_MODEL } from "./context";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 
 const app = express();
 app.use(express.json());
@@ -37,7 +37,14 @@ app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
         const previewUrl = await startProjectPreview(req.params.projectId, async () => {}, deadlineAt);
         res.json({ initialized: true, packagesInstalled: result.installedPackages, previewUrl });
     } catch (error) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        const errorReference = randomUUID();
+        console.error(JSON.stringify({
+            event: "project_workspace_initialization_failed",
+            errorReference,
+            projectId: req.params.projectId,
+            error: error instanceof Error ? error.message : String(error),
+        }));
+        res.status(500).json({ error: `Could not initialize the project workspace. Check the agent service logs. Reference: ${errorReference}` });
     }
 });
 
@@ -96,15 +103,23 @@ async function emitAgentEvent(res: express.Response, event: AgentRunEvent) {
 async function streamAgentEvents(
     res: express.Response,
     run: (emit: AgentEventEmitter) => Promise<void>,
+    context: { conversationId?: string; projectId?: string } = {},
 ) {
+    const errorReference = randomUUID();
     startSse(res);
     const emit: AgentEventEmitter = (event) => emitAgentEvent(res, event);
     try {
         await run(emit);
     } catch (error) {
+        console.error(JSON.stringify({
+            event: "agent_run_failed",
+            errorReference,
+            ...context,
+            error: error instanceof Error ? error.message : String(error),
+        }));
         await emit({
             event: "error",
-            data: { message: error instanceof Error ? error.message : String(error) },
+            data: { message: `The agent ran into a problem. Check the agent service logs. Reference: ${errorReference}` },
         });
     } finally {
         if (!res.writableEnded) res.end();
@@ -113,7 +128,11 @@ async function streamAgentEvents(
 
 app.post("/api/v1/agent/loop", async (req, res) => {
     const { conversation_id, message, project_id } = req.body 
-    await streamAgentEvents(res, (emit) => main(message, conversation_id, project_id, emit));
+    await streamAgentEvents(
+        res,
+        (emit) => main(message, conversation_id, project_id, emit),
+        { conversationId: conversation_id, projectId: project_id },
+    );
 });
 
 app.post("/api/v1/agent/resume", async (req, res) => {
@@ -155,7 +174,7 @@ app.post("/api/v1/agent/resume", async (req, res) => {
             pendingRun.project_id,
             answer,
             emit,
-        ));
+        ), { conversationId: conversation_id, projectId: pendingRun.project_id });
     } finally {
         resumingConversations.delete(conversation_id);
     }

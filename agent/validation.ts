@@ -24,6 +24,11 @@ export async function validateProject(
     observe: ValidationObserver = () => {},
 ): Promise<void> {
     const sandbox = await withDeadline(getProjectSandbox(projectId), deadlineAt);
+    console.info(JSON.stringify({
+        event: "project_validation_started",
+        projectId,
+        sandboxId: sandbox.sandboxId,
+    }));
     await ensureProjectDependencies(sandbox, deadlineAt);
 
     const vitest = await withDeadline(sandbox.commands.run(

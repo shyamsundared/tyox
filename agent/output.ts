@@ -288,8 +288,14 @@ async function runLoopUntilDeadline(
                             ? "S3 storage is not configured, so these changes are only in the active E2B workspace."
                             : null;
                     } catch (error) {
-                        storageWarning = `S3 snapshot failed: ${error instanceof Error ? error.message : String(error)}`;
-                        console.error(JSON.stringify({ event: "s3_snapshot_failed", projectId: project_id, error: storageWarning }));
+                        storageWarning = "The project snapshot could not be saved. Current changes remain in the active workspace.";
+                        console.error(JSON.stringify({
+                            event: "s3_snapshot_failed",
+                            runId: metrics.runId,
+                            conversationId: convo_id,
+                            projectId: project_id,
+                            error: error instanceof Error ? error.message : String(error),
+                        }));
                         await emit({ event: "update", data: { message: "Could not save the current project snapshot to S3." } });
                     }
                     if (storageWarning) {
@@ -383,8 +389,14 @@ async function runLoopUntilDeadline(
                         await emit({ event: "update", data: { message: storageWarning } });
                     }
                 } catch (error) {
-                    storageWarning = `S3 snapshot failed: ${error instanceof Error ? error.message : String(error)}`;
-                    console.error(JSON.stringify({ event: "s3_snapshot_failed", projectId: project_id, error: storageWarning }));
+                    storageWarning = "The project snapshot could not be saved. Current changes remain in the active workspace.";
+                    console.error(JSON.stringify({
+                        event: "s3_snapshot_failed",
+                        runId: metrics.runId,
+                        conversationId: convo_id,
+                        projectId: project_id,
+                        error: error instanceof Error ? error.message : String(error),
+                    }));
                     await emit({ event: "update", data: { message: "Could not save the project snapshot to S3; continuing validation." } });
                 }
                 try {
@@ -418,6 +430,14 @@ async function runLoopUntilDeadline(
                     await emit({ event: "preview", data: { url } });
                 } catch (error) {
                     const reason = error instanceof Error ? error.message : String(error);
+                    console.error(JSON.stringify({
+                        event: "project_preview_validation_failed",
+                        runId: metrics.runId,
+                        conversationId: convo_id,
+                        projectId: project_id,
+                        attempt: previewRepairAttempts + 1,
+                        error: reason,
+                    }));
                     if (previewRepairAttempts < MAX_PREVIEW_REPAIR_ATTEMPTS) {
                         previewRepairAttempts += 1;
                         metrics.repairAttempts = previewRepairAttempts;
@@ -448,7 +468,7 @@ async function runLoopUntilDeadline(
                     await emit({
                         event: "complete",
                         data: {
-                            message: `${message}\n\nI couldn't validate and start the app preview after ${MAX_PREVIEW_REPAIR_ATTEMPTS} repair attempts. Last error: ${reason}${storageWarning ? `\n\n${storageWarning}` : ""}`,
+                            message: `I couldn't validate and start the preview after ${MAX_PREVIEW_REPAIR_ATTEMPTS} repair attempt. The details are in the agent service logs. Reference: ${metrics.runId}${storageWarning ? `\n\n${storageWarning}` : ""}`,
                         },
                         conversationId: convo_id,
                     });

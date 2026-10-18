@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
 import axios from "axios";
 import type express from "express";
 import { db } from "../../db/db";
@@ -15,11 +16,20 @@ function startSse(res: express.Response) {
     res.flushHeaders();
 }
 
-function writeSseError(res: express.Response, error: unknown) {
+function writeSseError(res: express.Response, error: unknown, conversationId?: string) {
     if (res.destroyed) return;
     if (!res.headersSent) startSse(res);
-    const message = error instanceof Error ? error.message : String(error);
-    res.write(formatSseEvent({ event: "error", data: { message } }));
+    const errorReference = randomUUID();
+    console.error(JSON.stringify({
+        event: "agent_stream_relay_failed",
+        errorReference,
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+    }));
+    res.write(formatSseEvent({
+        event: "error",
+        data: { message: `The request was interrupted by a server error. Check the backend service logs. Reference: ${errorReference}` },
+    }));
     res.end();
 }
 
@@ -64,14 +74,14 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
         buffer = blocks.pop() ?? "";
         for (const block of blocks) saveMessage(block);
     });
-    stream.on("error", (error: unknown) => writeSseError(res, error));
+    stream.on("error", (error: unknown) => writeSseError(res, error, conversationId));
     stream.on("end", async () => {
         if (buffer.trim()) saveMessage(buffer);
         try {
             await pendingWrites;
             if (!res.writableEnded) res.end();
         } catch (error) {
-            writeSseError(res, error);
+            writeSseError(res, error, conversationId);
         }
     });
     stream.pipe(res, { end: false });
