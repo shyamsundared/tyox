@@ -2,10 +2,45 @@ import type { AgentClientEvent } from "../../shared/agent-events";
 
 const API_ORIGIN = (window as Window & { TYOX_API_URL?: string }).TYOX_API_URL || "http://localhost:3000";
 const TOKEN_KEY = "tyox_access_token";
+const ACCOUNT_KEY = "tyox_account";
 
-export function saveAuthToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+export type SavedAccount = { id: string; username: string };
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function saveAuthToken(token: string | null, account?: SavedAccount) {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+    if (account) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account));
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ACCOUNT_KEY);
+  }
+}
+
+export function getSavedAccount(): SavedAccount | null {
+  if (!localStorage.getItem(TOKEN_KEY)) return null;
+
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(ACCOUNT_KEY) ?? "null");
+    if (
+      value &&
+      typeof value === "object" &&
+      "id" in value && typeof value.id === "string" &&
+      "username" in value && typeof value.username === "string"
+    ) {
+      return { id: value.id, username: value.username };
+    }
+  } catch {
+    // A malformed saved account should behave like a signed-out session.
+  }
+
+  return null;
 }
 
 function withAuth(init: RequestInit = {}): RequestInit {
@@ -30,7 +65,7 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     const message = data && typeof data === "object" && "error" in data
       ? (data as { error: unknown }).error
       : data;
-    throw new Error(typeof message === "string" ? message : `Request failed (${response.status})`);
+    throw new ApiError(typeof message === "string" ? message : `Request failed (${response.status})`, response.status);
   }
 
   return data as T;

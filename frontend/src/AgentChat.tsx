@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { AgentClientEvent } from "../../shared/agent-events";
-import { eventMessage, jsonBody, requestJson, saveAuthToken, sendAgentRequest } from "./agent-api";
+import { ApiError, eventMessage, getSavedAccount, jsonBody, requestJson, saveAuthToken, sendAgentRequest } from "./agent-api";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type PendingQuestion = { conversation_id: string; call_id: string; question: string };
@@ -34,7 +34,7 @@ function Icon({ name, size = 18 }: { name: "plus" | "message" | "monitor" | "ext
 export function AgentChat() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [account, setAccount] = useState<Account | null>(null);
+  const [account, setAccount] = useState<Account | null>(() => getSavedAccount());
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
@@ -51,16 +51,40 @@ export function AgentChat() {
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
 
+  useEffect(() => {
+    const userId = account?.id;
+    if (!userId) return;
+
+    let active = true;
+    requestJson<Project[]>(`/api/v1/users/${encodeURIComponent(userId)}/projects`)
+      .then((ownedProjects) => {
+        if (active) setProjects(ownedProjects);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        if (cause instanceof ApiError && cause.status === 401) {
+          saveAuthToken(null);
+          setAccount(null);
+          setProjects([]);
+          setError("Your session expired. Please sign in again.");
+          return;
+        }
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [account?.id]);
+
   const authenticate = async (action: "login" | "signup") => {
     if (!username.trim() || !password) return;
     setBusy(true);
     setError("");
     try {
       const result = await requestJson<AuthResponse>(`/api/v1/${action}`, jsonBody({ username: username.trim(), password }));
-      saveAuthToken(result.token);
+      saveAuthToken(result.token, result);
       setAccount(result);
-      const ownedProjects = await requestJson<Project[]>(`/api/v1/users/${encodeURIComponent(result.id)}/projects`);
-      setProjects(ownedProjects);
       setProjectId("");
       setPassword("");
     } catch (cause) {
