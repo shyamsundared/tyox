@@ -1,3 +1,4 @@
+// use prisma-8
 // Prisma ORM 8 data contract for tyox.
 
 model User {
@@ -17,6 +18,7 @@ model Project {
   createdAt            TimestamptzString    @default(now())
   updatedAt            TimestamptzString    @default(now())
   conversation_history ConversationHistory[]
+  agentRuns            AgentRun[]
   todos                Todo[]
 
   @@index([userid])
@@ -27,11 +29,31 @@ model ConversationHistory {
   projectId String
   project   Project        @relation(fields: [projectId], references: [id])
   convos    Conversation[]
+  agentRuns AgentRun[]
   agentState String?
   createdAt TimestamptzString @default(now())
   updatedAt TimestamptzString @default(now())
 
   @@index([projectId])
+}
+
+model AgentRun {
+  id             String              @id @default(uuid())
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id])
+  conversationId String
+  conversation   ConversationHistory @relation(fields: [conversationId], references: [id])
+  prompt         String
+  status         AgentRunStatus      @default(QUEUED)
+  attempts       Int                 @default(0)
+  error          String?
+  createdAt      TimestamptzString   @default(now())
+  updatedAt      TimestamptzString   @default(now())
+  startedAt      TimestamptzString?
+  finishedAt     TimestamptzString?
+
+  @@index([projectId, status])
+  @@index([conversationId])
 }
 
 model Conversation {
@@ -77,4 +99,12 @@ enum Toolcall {
 enum ConversationType {
   TOOL_CALL
   TEXT_MESSAGE
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  WAITING
+  COMPLETED
+  FAILED
 }

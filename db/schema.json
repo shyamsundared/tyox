@@ -4,23 +4,27 @@
   "target": "postgres",
   "profileHash": "3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2",
   "roots": {
-    "conversation": {
+    "AgentRun": {
+      "model": "AgentRun",
+      "namespace": "public"
+    },
+    "Conversation": {
       "model": "Conversation",
       "namespace": "public"
     },
-    "conversationHistory": {
+    "ConversationHistory": {
       "model": "ConversationHistory",
       "namespace": "public"
     },
-    "project": {
+    "Project": {
       "model": "Project",
       "namespace": "public"
     },
-    "todo": {
+    "Todo": {
       "model": "Todo",
       "namespace": "public"
     },
-    "user": {
+    "User": {
       "model": "User",
       "namespace": "public"
     }
@@ -29,6 +33,31 @@
     "namespaces": {
       "public": {
         "enum": {
+          "AgentRunStatus": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "QUEUED",
+                "value": "QUEUED"
+              },
+              {
+                "name": "RUNNING",
+                "value": "RUNNING"
+              },
+              {
+                "name": "WAITING",
+                "value": "WAITING"
+              },
+              {
+                "name": "COMPLETED",
+                "value": "COMPLETED"
+              },
+              {
+                "name": "FAILED",
+                "value": "FAILED"
+              }
+            ]
+          },
           "ConversationType": {
             "codecId": "pg/text@1",
             "members": [
@@ -86,6 +115,166 @@
           }
         },
         "models": {
+          "AgentRun": {
+            "fields": {
+              "attempts": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "conversationId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "error": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "finishedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "projectId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "prompt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "startedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "AgentRunStatus",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "conversation": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "conversationId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ConversationHistory",
+                  "namespace": "public"
+                }
+              },
+              "project": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "projectId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Project",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "attempts": {
+                  "column": "attempts"
+                },
+                "conversationId": {
+                  "column": "conversationId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "error": {
+                  "column": "error"
+                },
+                "finishedAt": {
+                  "column": "finishedAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "projectId": {
+                  "column": "projectId"
+                },
+                "prompt": {
+                  "column": "prompt"
+                },
+                "startedAt": {
+                  "column": "startedAt"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AgentRun"
+            }
+          },
           "Conversation": {
             "fields": {
               "Content": {
@@ -199,7 +388,7 @@
                 }
               },
               "namespaceId": "public",
-              "table": "conversation"
+              "table": "Conversation"
             }
           },
           "ConversationHistory": {
@@ -241,6 +430,21 @@
               }
             },
             "relations": {
+              "agentRuns": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "conversationId"
+                  ]
+                },
+                "to": {
+                  "model": "AgentRun",
+                  "namespace": "public"
+                }
+              },
               "convos": {
                 "cardinality": "1:N",
                 "on": {
@@ -292,7 +496,7 @@
                 }
               },
               "namespaceId": "public",
-              "table": "conversationHistory"
+              "table": "ConversationHistory"
             }
           },
           "Project": {
@@ -341,6 +545,21 @@
               }
             },
             "relations": {
+              "agentRuns": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "projectId"
+                  ]
+                },
+                "to": {
+                  "model": "AgentRun",
+                  "namespace": "public"
+                }
+              },
               "conversation_history": {
                 "cardinality": "1:N",
                 "on": {
@@ -410,7 +629,7 @@
                 }
               },
               "namespaceId": "public",
-              "table": "project"
+              "table": "Project"
             }
           },
           "Todo": {
@@ -508,7 +727,7 @@
                 }
               },
               "namespaceId": "public",
-              "table": "todo"
+              "table": "Todo"
             }
           },
           "User": {
@@ -575,7 +794,7 @@
                 }
               },
               "namespaceId": "public",
-              "table": "user"
+              "table": "User"
             }
           }
         }
@@ -587,33 +806,194 @@
       "public": {
         "entries": {
           "table": {
-            "conversation": {
+            "AgentRun": {
+              "checks": [
+                {
+                  "expression": "\"status\" IN ('QUEUED', 'RUNNING', 'WAITING', 'COMPLETED', 'FAILED')",
+                  "name": "AgentRun_status_check_9ab90759",
+                  "prefix": "AgentRun_status_check"
+                }
+              ],
+              "columns": {
+                "attempts": {
+                  "codecId": "pg/int4@1",
+                  "dataType": "pg/int4",
+                  "default": {
+                    "kind": "literal",
+                    "value": 0
+                  },
+                  "nullable": false
+                },
+                "conversationId": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nullable": false
+                },
+                "error": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": true
+                },
+                "finishedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
+                "projectId": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
+                "prompt": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
+                "startedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "default": {
+                    "kind": "literal",
+                    "value": "QUEUED"
+                  },
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "AgentRunStatus",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "index": {
+                    "name": "AgentRun_projectId_idx_a96e4d92"
+                  },
+                  "source": {
+                    "columns": [
+                      "projectId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AgentRun"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Project"
+                  }
+                },
+                {
+                  "index": {
+                    "name": "AgentRun_conversationId_idx_669215a6"
+                  },
+                  "source": {
+                    "columns": [
+                      "conversationId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AgentRun"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ConversationHistory"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "conversationId"
+                  ],
+                  "name": "AgentRun_conversationId_idx_669215a6",
+                  "prefix": "AgentRun_conversationId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "projectId"
+                  ],
+                  "name": "AgentRun_projectId_idx_a96e4d92",
+                  "prefix": "AgentRun_projectId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "projectId",
+                    "status"
+                  ],
+                  "name": "AgentRun_projectId_status_idx_57a5993e",
+                  "prefix": "AgentRun_projectId_status_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "Conversation": {
               "checks": [
                 {
                   "expression": "\"ConversationType\" IN ('TOOL_CALL', 'TEXT_MESSAGE')",
-                  "name": "conversation_ConversationType_check_b627cca5",
-                  "prefix": "conversation_ConversationType_check"
+                  "name": "Conversation_ConversationType_check_b627cca5",
+                  "prefix": "Conversation_ConversationType_check"
                 },
                 {
                   "expression": "\"From\" IN ('USER', 'ASSISTANT')",
-                  "name": "conversation_From_check_de0b94b5",
-                  "prefix": "conversation_From_check"
+                  "name": "Conversation_From_check_de0b94b5",
+                  "prefix": "Conversation_From_check"
                 },
                 {
                   "expression": "\"toolcall\" IN ('READ_FILE', 'WRITE_FILE', 'DELETE_FILE', 'UPDATE_FILE', 'QNA', 'CREATE_TODOS')",
-                  "name": "conversation_toolcall_check_8865f85c",
-                  "prefix": "conversation_toolcall_check"
+                  "name": "Conversation_toolcall_check_8865f85c",
+                  "prefix": "Conversation_toolcall_check"
                 }
               ],
               "columns": {
                 "Content": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "ConversationType": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false,
                   "valueSet": {
                     "entityKind": "valueSet",
@@ -624,7 +1004,7 @@
                 },
                 "From": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false,
                   "valueSet": {
                     "entityKind": "valueSet",
@@ -635,26 +1015,26 @@
                 },
                 "conversation_id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "toolcall": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": true,
                   "valueSet": {
                     "entityKind": "valueSet",
@@ -666,19 +1046,22 @@
               },
               "foreignKeys": [
                 {
+                  "index": {
+                    "name": "Conversation_conversation_id_idx_0c3639df"
+                  },
                   "source": {
                     "columns": [
                       "conversation_id"
                     ],
                     "namespaceId": "public",
-                    "tableName": "conversation"
+                    "tableName": "Conversation"
                   },
                   "target": {
                     "columns": [
                       "id"
                     ],
                     "namespaceId": "public",
-                    "tableName": "conversationHistory"
+                    "tableName": "ConversationHistory"
                   }
                 }
               ],
@@ -687,8 +1070,8 @@
                   "columns": [
                     "conversation_id"
                   ],
-                  "name": "conversation_conversation_id_idx_0c3639df",
-                  "prefix": "conversation_conversation_id_idx",
+                  "name": "Conversation_conversation_id_idx_0c3639df",
+                  "prefix": "Conversation_conversation_id_idx",
                   "unique": false
                 }
               ],
@@ -699,57 +1082,60 @@
               },
               "uniques": []
             },
-            "conversationHistory": {
+            "ConversationHistory": {
               "columns": {
                 "agentState": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": true
                 },
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "projectId": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "updatedAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 }
               },
               "foreignKeys": [
                 {
+                  "index": {
+                    "name": "ConversationHistory_projectId_idx_a96e4d92"
+                  },
                   "source": {
                     "columns": [
                       "projectId"
                     ],
                     "namespaceId": "public",
-                    "tableName": "conversationHistory"
+                    "tableName": "ConversationHistory"
                   },
                   "target": {
                     "columns": [
                       "id"
                     ],
                     "namespaceId": "public",
-                    "tableName": "project"
+                    "tableName": "Project"
                   }
                 }
               ],
@@ -758,8 +1144,8 @@
                   "columns": [
                     "projectId"
                   ],
-                  "name": "conversationHistory_projectId_idx_a96e4d92",
-                  "prefix": "conversationHistory_projectId_idx",
+                  "name": "ConversationHistory_projectId_idx_a96e4d92",
+                  "prefix": "ConversationHistory_projectId_idx",
                   "unique": false
                 }
               ],
@@ -770,62 +1156,65 @@
               },
               "uniques": []
             },
-            "project": {
+            "Project": {
               "columns": {
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "initialPrompt": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "title": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "updatedAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "userid": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 }
               },
               "foreignKeys": [
                 {
+                  "index": {
+                    "name": "Project_userid_idx_dbef1505"
+                  },
                   "source": {
                     "columns": [
                       "userid"
                     ],
                     "namespaceId": "public",
-                    "tableName": "project"
+                    "tableName": "Project"
                   },
                   "target": {
                     "columns": [
                       "id"
                     ],
                     "namespaceId": "public",
-                    "tableName": "user"
+                    "tableName": "User"
                   }
                 }
               ],
@@ -834,8 +1223,8 @@
                   "columns": [
                     "userid"
                   ],
-                  "name": "project_userid_idx_dbef1505",
-                  "prefix": "project_userid_idx",
+                  "name": "Project_userid_idx_dbef1505",
+                  "prefix": "Project_userid_idx",
                   "unique": false
                 }
               ],
@@ -846,71 +1235,74 @@
               },
               "uniques": []
             },
-            "todo": {
+            "Todo": {
               "columns": {
                 "completed": {
                   "codecId": "pg/bool@1",
+                  "dataType": "pg/bool",
                   "default": {
                     "kind": "literal",
                     "value": false
                   },
-                  "nativeType": "bool",
                   "nullable": false
                 },
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "description": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": true
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "position": {
                   "codecId": "pg/int4@1",
+                  "dataType": "pg/int4",
                   "default": {
                     "kind": "literal",
                     "value": 0
                   },
-                  "nativeType": "int4",
                   "nullable": false
                 },
                 "projectId": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "title": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 }
               },
               "foreignKeys": [
                 {
+                  "index": {
+                    "name": "Todo_projectId_idx_a96e4d92"
+                  },
                   "source": {
                     "columns": [
                       "projectId"
                     ],
                     "namespaceId": "public",
-                    "tableName": "todo"
+                    "tableName": "Todo"
                   },
                   "target": {
                     "columns": [
                       "id"
                     ],
                     "namespaceId": "public",
-                    "tableName": "project"
+                    "tableName": "Project"
                   }
                 }
               ],
@@ -919,8 +1311,8 @@
                   "columns": [
                     "projectId"
                   ],
-                  "name": "todo_projectId_idx_a96e4d92",
-                  "prefix": "todo_projectId_idx",
+                  "name": "Todo_projectId_idx_a96e4d92",
+                  "prefix": "Todo_projectId_idx",
                   "unique": false
                 }
               ],
@@ -931,30 +1323,30 @@
               },
               "uniques": []
             },
-            "user": {
+            "User": {
               "columns": {
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
+                  "dataType": "pg/timestamptz",
                   "default": {
                     "expression": "now()",
                     "kind": "function"
                   },
-                  "nativeType": "timestamptz",
                   "nullable": false
                 },
                 "id": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "password": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 },
                 "username": {
                   "codecId": "pg/text@1",
-                  "nativeType": "text",
+                  "dataType": "pg/text",
                   "nullable": false
                 }
               },
@@ -975,6 +1367,16 @@
             }
           },
           "valueSet": {
+            "AgentRunStatus": {
+              "kind": "valueSet",
+              "values": [
+                "QUEUED",
+                "RUNNING",
+                "WAITING",
+                "COMPLETED",
+                "FAILED"
+              ]
+            },
             "ConversationType": {
               "kind": "valueSet",
               "values": [
@@ -1006,10 +1408,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "2a9b623d2caed7c019d77bb31ca43ccc352ddaa1c2ceacf4bacd89f72d721f38"
+    "storageHash": "1b18ec3fb0b67928881fd287ccf4a578fa7f4dd4f28ac062cee6ab924e4710b6"
   },
   "execution": {
-    "executionHash": "ce609a9a920824b9f3d436fac7c20e480710884a5cff0d3112da48b893c77ac8",
+    "executionHash": "05567cd82be3cb5d02dbf09cb3decc9551dfe315b4821af5a76009454b247f85",
     "mutations": {
       "defaults": [
         {
@@ -1018,9 +1420,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "conversation"
+            "entry": "AgentRun",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -1029,9 +1431,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "conversationHistory"
+            "entry": "Conversation",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -1040,9 +1442,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "project"
+            "entry": "ConversationHistory",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -1051,9 +1453,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "todo"
+            "entry": "Project",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -1062,9 +1464,20 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "user"
+            "entry": "Todo",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "User",
+            "field": "id",
+            "namespace": "public"
           }
         }
       ]
@@ -1073,6 +1486,8 @@
   "capabilities": {
     "postgres": {
       "distinctOn": true,
+      "forKeyShare": true,
+      "forNoKeyUpdate": true,
       "jsonAgg": true,
       "lateral": true,
       "limit": true,
@@ -1083,7 +1498,14 @@
       "checkConstraint": true,
       "defaultInInsert": true,
       "enums": true,
+      "forShare": true,
+      "forUpdate": true,
+      "insertOnConflictSkip": true,
+      "insertOnConflictWithoutTarget": true,
       "lateral": true,
+      "lockNowait": true,
+      "lockOf": true,
+      "lockSkipLocked": true,
       "returning": true,
       "scalarList": true
     }
