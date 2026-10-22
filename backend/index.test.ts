@@ -39,6 +39,9 @@ const db = {
                     include: () => ({ orderBy: () => ({ all: async () => [] }) }),
                 }),
             },
+            AgentRun: {
+                create: async (input: Record<string, unknown>) => input,
+            },
             Conversation: {
                 create: async (input: Record<string, unknown>) => {
                     savedMessages.push(input);
@@ -98,8 +101,8 @@ beforeEach(() => {
     requestedUserId = user.id;
 });
 
-const authHeaders = (additional: Record<string, string> = {}) => ({
-    authorization: `Bearer ${createAccessToken(requestedUserId)}`,
+const authHeaders = async (additional: Record<string, string> = {}) => ({
+    authorization: `Bearer ${await createAccessToken(requestedUserId)}`,
     ...additional,
 });
 
@@ -112,7 +115,7 @@ describe("authentication", () => {
 
     it("rejects an expired bearer token", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
-            headers: { authorization: `Bearer ${createAccessToken(user.id, 0)}` },
+            headers: { authorization: `Bearer ${await createAccessToken(user.id, 0)}` },
         });
         expect(response.status).toBe(401);
     });
@@ -122,7 +125,7 @@ describe("project API", () => {
     it("rejects an invalid project request before creating a project", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ user_id: "", title: "", initialPrompt: "" }),
         });
 
@@ -133,7 +136,7 @@ describe("project API", () => {
     it("creates a project and initializes its E2B preview", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ title: " Demo ", initialPrompt: " Build a page " }),
         });
         const body = await response.json() as { id: string; previewUrl: string; title: string };
@@ -145,7 +148,7 @@ describe("project API", () => {
 
     it("does not let one user list another user's projects", async () => {
         requestedUserId = "another-user";
-        const response = await fetch(`${baseUrl}/api/v1/users/${user.id}/projects`, { headers: authHeaders() });
+        const response = await fetch(`${baseUrl}/api/v1/users/${user.id}/projects`, { headers: await authHeaders() });
         expect(response.status).toBe(403);
     });
 
@@ -153,7 +156,7 @@ describe("project API", () => {
         requestedUserId = "another-user";
         const response = await fetch(`${baseUrl}/api/v1/${project.id}`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ message: "Change the page" }),
         });
 
@@ -172,7 +175,7 @@ describe("conversation API", () => {
 
         const response = await fetch(`${baseUrl}/api/v1/${project.id}`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ message: "Build a page" }),
         });
         const stream = await response.text();
@@ -190,7 +193,7 @@ describe("conversation API", () => {
     it("stores an answer and resumes the matching conversation", async () => {
         const response = await fetch(`${baseUrl}/api/v1/${project.id}/answer`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({
                 conversation_id: conversation.id,
                 call_id: "question-1",
@@ -215,7 +218,7 @@ describe("conversation API", () => {
         conversationExists = false;
         const response = await fetch(`${baseUrl}/api/v1/another-project/answer`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ conversation_id: conversation.id, call_id: "question-1", answer: "Okay" }),
         });
 

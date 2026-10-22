@@ -4,6 +4,7 @@ import axios from "axios";
 import type express from "express";
 import { db } from "../../db/db";
 import { formatSseEvent, type AgentClientEvent } from "../../shared/agent-events";
+import { injectTraceHeaders, markCurrentSpanError, withSpan } from "../telemetry";
 
 const agentOrigin = process.env.AGENT_ORIGIN ?? "http://localhost:3001";
 const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
@@ -17,6 +18,7 @@ function startSse(res: express.Response) {
 }
 
 function writeSseError(res: express.Response, error: unknown, conversationId?: string) {
+    markCurrentSpanError(error);
     if (res.destroyed) return;
     if (!res.headersSent) startSse(res);
     const errorReference = randomUUID();
@@ -143,13 +145,29 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
             From: "USER",
             ConversationType: "TEXT_MESSAGE",
         });
+        await db.orm.public.AgentRun.create({
+            projectId: projectid,
+            conversationId: conversation.id,
+            prompt: message,
+            status: "RUNNING",
+            attempts: 1,
+            startedAt: new Date().toISOString(),
+        });
 
         startSse(res);
-        const agentResponse = await axios.post(
-            `${agentOrigin}/api/v1/agent/loop`,
-            { conversation_id: conversation.id, message, project_id: projectid },
-            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
-        );
+        const agentResponse = await withSpan("tyox.agent.request", {
+            "http.request.method": "POST",
+            "server.address": new URL(agentOrigin).host,
+            "tyox.agent.operation": "loop",
+        }, async () => {
+            const headers: Record<string, string> = { "x-agent-key": agentApiKey };
+            injectTraceHeaders(headers);
+            return axios.post(
+                `${agentOrigin}/api/v1/agent/loop`,
+                { conversation_id: conversation.id, message, project_id: projectid },
+                { responseType: "stream", headers },
+            );
+        });
         relayAgentStream(agentResponse.data, res, conversation.id);
     } catch (error) {
         writeSseError(res, error);
@@ -189,11 +207,19 @@ export async function answerQuestion(req: express.Request<{ projectid: string }>
         });
 
         startSse(res);
-        const agentResponse = await axios.post(
-            `${agentOrigin}/api/v1/agent/resume`,
-            { conversation_id, call_id, answer },
-            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
-        );
+        const agentResponse = await withSpan("tyox.agent.request", {
+            "http.request.method": "POST",
+            "server.address": new URL(agentOrigin).host,
+            "tyox.agent.operation": "resume",
+        }, async () => {
+            const headers: Record<string, string> = { "x-agent-key": agentApiKey };
+            injectTraceHeaders(headers);
+            return axios.post(
+                `${agentOrigin}/api/v1/agent/resume`,
+                { conversation_id, call_id, answer },
+                { responseType: "stream", headers },
+            );
+        });
         relayAgentStream(agentResponse.data, res, conversation_id);
     } catch (error) {
         writeSseError(res, error);
