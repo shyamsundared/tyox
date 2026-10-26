@@ -4,7 +4,3 @@ export const userschema=z.object({
     password:z.string().min(7,"minimum seven characters")
 })
 export type user=z.infer<typeof userschema>
-export const initialproject=z.object({
-    title:z.string().min(1,"title cannot be empty"),
-    initialPrompt:z.string().min(1,"need to type something")
-})

@@ -1,15 +1,14 @@
 import axios from "axios";
 import type { Request, Response } from "express";
 import { db } from "../../db/db";
-import { initialproject } from "../types/types";
-
+import { createProjectSchema } from "../schemas/project-schema";
 const agentOrigin = process.env.AGENT_ORIGIN ?? "http://localhost:3001";
 const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
 
 
 
 export async function createProject(req: Request, res: Response) {
-    const result = initialproject.safeParse(req.body);
+    const result = createProjectSchema.safeParse(req.body);
     if (!result.success) {
         res.status(400).json({ message: result.error });
         return;
