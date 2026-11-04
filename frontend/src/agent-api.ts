@@ -1,6 +1,12 @@
 import type { AgentClientEvent } from "../../shared/agent-events";
+import { createParser } from "eventsource-parser";
 
-const API_ORIGIN = (window as Window & { TYOX_API_URL?: string }).TYOX_API_URL || "http://localhost:3000";
+const configuredApiOrigin = (window as Window & { TYOX_API_URL?: string }).TYOX_API_URL;
+
+const API_ORIGIN =
+  configuredApiOrigin && configuredApiOrigin !== "__TYOX_API_URL__"
+    ? configuredApiOrigin.replace(/\/+$/, "")
+    : "http://localhost:3000";
 const TOKEN_KEY = "tyox_access_token";
 const ACCOUNT_KEY = "tyox_account";
 
@@ -21,6 +27,10 @@ export function saveAuthToken(token: string | null, account?: SavedAccount) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ACCOUNT_KEY);
   }
+}
+
+export function getSavedAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function getSavedAccount(): SavedAccount | null {
@@ -85,34 +95,29 @@ export async function readAgentStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  const parser = createParser({
+    onEvent(message) {
+      onEvent({
+        event: message.event || "message",
+        data: JSON.parse(message.data),
+      } as AgentClientEvent);
+    },
+  });
 
-  function dispatch(block: string) {
-    let event = "message";
-    const data: string[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        parser.feed(decoder.decode());
+        parser.reset({ consume: true });
+        break;
+      }
 
-    for (const line of block.split(/\r?\n/)) {
-      if (line.startsWith("event:")) event = line.slice(6).trim();
-      if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      parser.feed(decoder.decode(value, { stream: true }));
     }
-
-    if (data.length) {
-      onEvent({ event, data: JSON.parse(data.join("\n")) } as AgentClientEvent);
-    }
+  } finally {
+    reader.releaseLock();
   }
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-
-    const blocks = buffer.split(/\r?\n\r?\n/);
-    buffer = blocks.pop() ?? "";
-    for (const block of blocks) dispatch(block);
-
-    if (done) break;
-  }
-
-  if (buffer.trim()) dispatch(buffer);
 }
 
 export async function sendAgentRequest(

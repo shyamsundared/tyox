@@ -1,6 +1,6 @@
 # Frontend
 
-The frontend is a React chat served by Bun. `src/AgentChat.tsx` owns the current account, project, messages, and agent stream state. Shared form controls live in `src/components/ui/`.
+The frontend is a React chat served by Bun. `src/AgentChat.tsx` owns the current account, project, messages, and agent stream state. Forms use native buttons, inputs, and textareas. `src/index.css` imports Tailwind and contains shared control styles and the workspace layout. Tailwind remains enabled in both the dev server and production build; unused component variants and duplicate styling were removed.
 
 From this directory:
 
