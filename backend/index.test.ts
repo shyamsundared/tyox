@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from "bun
 import { once } from "node:events";
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
+import jwt from "jsonwebtoken";
 
 const project = { id: "project-1", userid: "user-1", title: "Demo", initialPrompt: "Build a page" };
 const user = { id: "user-1", username: "shyam", password: "hashed" };
@@ -70,7 +71,6 @@ mock.module("axios", () => ({
 }));
 
 process.env.JWT_SECRET = "test-secret-that-is-long-enough";
-const { createAccessToken } = await import("./middleware/authmiddleware");
 const { app } = await import("./index");
 let server: ReturnType<typeof app.listen>;
 let baseUrl: string;
@@ -87,7 +87,7 @@ beforeAll(async () => {
 afterAll(async () => {
     if (!serverStarted) return;
     await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error: Error | undefined) => error ? reject(error) : resolve());
     });
 });
 
@@ -102,7 +102,7 @@ beforeEach(() => {
 });
 
 const authHeaders = async (additional: Record<string, string> = {}) => ({
-    authorization: `Bearer ${await createAccessToken(requestedUserId)}`,
+    authorization: `Bearer ${jwt.sign({ sub: requestedUserId }, process.env.JWT_SECRET!, { algorithm: "HS256", expiresIn: "24h" })}`,
     ...additional,
 });
 
@@ -115,7 +115,7 @@ describe("authentication", () => {
 
     it("rejects an expired bearer token", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
-            headers: { authorization: `Bearer ${await createAccessToken(user.id, 0)}` },
+            headers: { authorization: `Bearer ${jwt.sign({ sub: user.id, exp: 0 }, process.env.JWT_SECRET!, { algorithm: "HS256" })}` },
         });
         expect(response.status).toBe(401);
     });
@@ -210,7 +210,7 @@ describe("conversation API", () => {
         ]));
         expect(agentRequests[0]).toEqual({
             url: "http://localhost:3001/api/v1/agent/resume",
-            body: { conversation_id: conversation.id, call_id: "question-1", answer: "Use a dark theme" },
+            body: { project_id: project.id, conversation_id: conversation.id, call_id: "question-1", answer: "Use a dark theme" },
         });
     });
 

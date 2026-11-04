@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import axios from "axios";
 import type express from "express";
 import { db } from "../../db/db";
+import type { Response } from "express";
 import { formatSseEvent, type AgentClientEvent } from "../../shared/agent-events";
 import { injectTraceHeaders, markCurrentSpanError, withSpan } from "../telemetry";
 
@@ -19,7 +20,7 @@ function startSse(res: express.Response) {
 
 function writeSseError(res: express.Response, error: unknown, conversationId?: string) {
     markCurrentSpanError(error);
-    if (res.destroyed) return;
+    if (res.destroyed || res.writableEnded) return;
     if (!res.headersSent) startSse(res);
     const errorReference = randomUUID();
     console.error(JSON.stringify({
@@ -30,14 +31,18 @@ function writeSseError(res: express.Response, error: unknown, conversationId?: s
     }));
     res.write(formatSseEvent({
         event: "error",
-        data: { message: `The request was interrupted by a server error. Check the backend service logs. Reference: ${errorReference}` },
+        data: { message: axios.isAxiosError(error) && error.response?.status === 409
+            ? "The project is busy or this question has already been answered. Wait for the current task, then reload its history."
+            : `The request was interrupted by a server error. Check the backend service logs. Reference: ${errorReference}` },
     }));
     res.end();
 }
 
-function relayAgentStream(stream: Readable, res: express.Response, conversationId: string) {
+function relayAgentStream(stream: Readable, res:Response, conversationId: string) {
     let buffer = "";
     let pendingWrites = Promise.resolve();
+    let persistenceError: unknown;
+    stream.setEncoding("utf8");
 
     const saveMessage = (block: string) => {
         let eventName = "message";
@@ -64,9 +69,11 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
                 From: "ASSISTANT",
                 ConversationType: "TEXT_MESSAGE",
                 toolcall: event.event === "question" ? "QNA" : null,
-            }).then(() => undefined));
+            }).then(() => undefined)).catch((error: unknown) => {
+                persistenceError = error;
+            });
         } catch (error) {
-            pendingWrites = pendingWrites.then(() => Promise.reject(error));
+            persistenceError = error;
         }
     };
 
@@ -81,6 +88,7 @@ function relayAgentStream(stream: Readable, res: express.Response, conversationI
         if (buffer.trim()) saveMessage(buffer);
         try {
             await pendingWrites;
+            if (persistenceError) throw persistenceError;
             if (!res.writableEnded) res.end();
         } catch (error) {
             writeSseError(res, error, conversationId);
@@ -124,11 +132,11 @@ export async function getConversationHistory(req: express.Request<{ projectid: s
     }
 }
 
-export async function sendMessage(req: express.Request<{ projectid: string }>, res: express.Response) {
+export async function sendMessage(req: express.Request<{ projectid: string }>,res:Response) {
     const { projectid } = req.params;
-    const { message } = req.body;
-    if (typeof message !== "string" || !message.trim()) {
-        res.status(400).json({ error: "message is required" });
+    const { message } = req.body ?? {};
+    if (typeof message !== "string" || !message.trim() || message.length > 20_000) {
+        res.status(400).json({ error: "message must contain 1–20,000 characters" });
         return;
     }
 
@@ -145,14 +153,7 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
             From: "USER",
             ConversationType: "TEXT_MESSAGE",
         });
-        await db.orm.public.AgentRun.create({
-            projectId: projectid,
-            conversationId: conversation.id,
-            prompt: message,
-            status: "RUNNING",
-            attempts: 1,
-            startedAt: new Date().toISOString(),
-        });
+
 
         startSse(res);
         const agentResponse = await withSpan("tyox.agent.request", {
@@ -165,7 +166,7 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
             return axios.post(
                 `${agentOrigin}/api/v1/agent/loop`,
                 { conversation_id: conversation.id, message, project_id: projectid },
-                { responseType: "stream", headers },
+                { responseType: "stream", headers, timeout: 330_000 },
             );
         });
         relayAgentStream(agentResponse.data, res, conversation.id);
@@ -176,12 +177,12 @@ export async function sendMessage(req: express.Request<{ projectid: string }>, r
 
 export async function answerQuestion(req: express.Request<{ projectid: string }>, res: express.Response) {
     const { projectid } = req.params;
-    const { conversation_id, call_id, answer } = req.body as {
+    const { conversation_id, call_id, answer } = (req.body ?? {}) as {
         conversation_id?: string;
         call_id?: string;
         answer?: string;
     };
-    if (!conversation_id || !call_id || typeof answer !== "string" || !answer.trim()) {
+    if (!conversation_id || !call_id || typeof answer !== "string" || !answer.trim() || answer.length > 20_000) {
         res.status(400).json({ error: "conversation_id, call_id, and answer are required" });
         return;
     }
@@ -216,8 +217,8 @@ export async function answerQuestion(req: express.Request<{ projectid: string }>
             injectTraceHeaders(headers);
             return axios.post(
                 `${agentOrigin}/api/v1/agent/resume`,
-                { conversation_id, call_id, answer },
-                { responseType: "stream", headers },
+                { project_id: projectid, conversation_id, call_id, answer },
+                { responseType: "stream", headers, timeout: 330_000 },
             );
         });
         relayAgentStream(agentResponse.data, res, conversation_id);
