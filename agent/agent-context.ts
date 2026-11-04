@@ -1,6 +1,6 @@
-import { bashToolDefinition, createTodosToolDefinition, questionToolDefinition, readToolDefinition, writeToolDefinition } from "./tooldefinition";
-import type { Step } from "./types";
-import { client } from "./types";
+import { bashToolDefinition, questionToolDefinition, readToolDefinition, writeToolDefinition } from "./tools/definitions";
+import type { Step } from "./agent-types";
+import { client } from "./config";
 import { withDeadline } from "./deadline";
 
 export const AGENT_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
@@ -18,11 +18,12 @@ export type PreparedAgentContext = {
 
 export const AGENT_SYSTEM_INSTRUCTION = [
     "For coding requests, build or modify the existing React app to satisfy the user's request.",
-    "Prefer the smallest complete solution. Do not add unrequested features, dependencies, or elaborate demo content.",
+    "For new page requests, build a polished, complete page with realistic content, clear visual hierarchy, and the core sections users expect for that kind of page. Avoid placeholder-only layouts or bare minimum demos.",
+    "Keep the implementation focused on the request. Do not add unrelated features, dependencies, or excessive demo content.",
     "Preserve the existing project setup and working behavior outside the requested change.",
     "Do not rewrite package.json or remove the initialized React, Vite, TypeScript, Tailwind, or test setup. Preserve existing dependencies and scripts unless the user explicitly asks to change the project tooling.",
     "Before editing an existing source file, read its current contents. Always write complete valid source code; never copy context-compaction or omitted-content placeholders into project files.",
-    "Add or update focused React Testing Library tests for requested behavior. Do not run tests or the production build yourself; Tyox runs those checks once after implementation and may send one repair request if they fail.",
+    "Add or update focused React Testing Library tests under src/ for requested behavior. For behavior that depends on real browser APIs (especially drag-and-drop), do not simulate incomplete browser events in jsdom; add a focused Playwright test under e2e/ and use real browser interactions such as page.dragTo. Keep the starter browser smoke test. Do not run tests or the production build yourself; Tyox runs those checks after implementation and may send one repair request if they fail.",
     "For questions that do not request code changes, answer directly without editing files. Keep the final response brief.",
 ].join(" ");
 
@@ -31,7 +32,6 @@ export const AGENT_TOOL_DEFINITIONS = [
     readToolDefinition,
     writeToolDefinition,
     questionToolDefinition,
-    createTodosToolDefinition,
 ];
 
 function splitTurns(history: Step[]): Step[][] {
@@ -99,7 +99,7 @@ async function countContextTokens(history: Step[], deadlineAt: number): Promise<
     }
 }
 
-function replaceToolOutput(step: Step): void {
+function omitToolOutput(step: Step): void {
     if (step.type !== "function_result") return;
     const result = step.result as unknown;
     if (!result || typeof result !== "object") return;
@@ -117,42 +117,30 @@ function replaceToolOutput(step: Step): void {
     resultRecord.output = "[Earlier tool output omitted to fit the context budget.]";
 }
 
-function shortenToolArguments(history: Step[]): void {
-    for (const step of history) {
-        if (step.type !== "function_call" || step.name === writeToolDefinition.name) continue;
-        for (const [key, value] of Object.entries(step.arguments)) {
-            if (typeof value === "string" && value.length > 1_000) {
-                step.arguments[key] = `${value.slice(0, 400)}\n[…tool argument shortened to fit context…]`;
-            }
-        }
+function compactHistory(history: Step[]): Step[] {
+    const turns = splitTurns(history);
+    if (turns.length > 2) {
+        const firstRequest = turns[0]?.[0];
+        history = [
+            ...(firstRequest ? [firstRequest] : []),
+            ...turns.slice(-2).flat(),
+        ];
     }
-}
 
-function compactToolData(history: Step[], preserveRecent: number): void {
+    history = history.filter((step) => step.type !== "thought");
     const writes = history.filter((step) => step.type === "function_call" && step.name === writeToolDefinition.name);
-    const oldWrites = writes.slice(0, Math.max(0, writes.length - preserveRecent));
+    const oldWrites = writes.slice(0, Math.max(0, writes.length - 2));
     const omittedWriteIds = new Set(oldWrites.flatMap((step) => step.type === "function_call" ? [step.id] : []));
     if (omittedWriteIds.size > 0) {
-        const compacted = history.filter((step) =>
+        history = history.filter((step) =>
             !(step.type === "function_call" && omittedWriteIds.has(step.id))
             && !(step.type === "function_result" && omittedWriteIds.has(step.call_id)),
         );
-        history.splice(0, history.length, ...compacted);
     }
 
     const results = history.filter((step) => step.type === "function_result");
-    const oldResults = results.slice(0, Math.max(0, results.length - preserveRecent));
-    for (const step of oldResults) replaceToolOutput(step);
-}
-
-function shrinkUserInput(step: Step, keepChars: number): void {
-    if (step.type !== "user_input") return;
-    for (const part of step.content ?? []) {
-        if (part.type !== "text" || typeof part.text !== "string" || part.text.length <= keepChars) continue;
-        const marker = "\n[…middle of this message omitted to fit the context budget…]\n";
-        const sideLength = Math.max(0, Math.floor((keepChars - marker.length) / 2));
-        part.text = `${part.text.slice(0, sideLength)}${marker}${part.text.slice(-sideLength)}`;
-    }
+    for (const step of results.slice(0, Math.max(0, results.length - 2))) omitToolOutput(step);
+    return history;
 }
 
 export async function prepareAgentContext(history: Step[], deadlineAt: number): Promise<PreparedAgentContext> {
@@ -182,49 +170,17 @@ export async function prepareAgentContext(history: Step[], deadlineAt: number): 
         };
     }
 
-    let serializedBytes = initialBytes;
-    const turns = splitTurns(selected);
-    if (turns.length > 1) {
-        const initialRequest = turns[0]?.[0];
-        let recentTurns = turns.slice(1);
-        while (recentTurns.length > 1 && serializedBytes > SAFE_SERIALIZED_CONTEXT_BYTES) {
-            recentTurns = recentTurns.slice(-Math.max(1, Math.ceil(recentTurns.length / 2)));
-            selected = [
-                ...(initialRequest ? [initialRequest] : []),
-                ...recentTurns.flat(),
-            ];
-            serializedBytes = serializedContextBytes(selected);
-        }
-    }
-
-    if (serializedBytes > SAFE_SERIALIZED_CONTEXT_BYTES) {
-        selected = selected.filter((step) => step.type !== "thought");
-        compactToolData(selected, 2);
-        serializedBytes = serializedContextBytes(selected);
-    }
-
-    if (serializedBytes > SAFE_SERIALIZED_CONTEXT_BYTES) {
-        compactToolData(selected, 0);
-        shortenToolArguments(selected);
-        serializedBytes = serializedContextBytes(selected);
-    }
-
-    let keepChars = 16_000;
-    while (serializedBytes > SAFE_SERIALIZED_CONTEXT_BYTES && keepChars > 100) {
-        for (const step of selected) shrinkUserInput(step, keepChars);
-        serializedBytes = serializedContextBytes(selected);
-        keepChars = Math.floor(keepChars / 2);
-    }
-
-    if (serializedBytes > SAFE_SERIALIZED_CONTEXT_BYTES) {
-        throw new Error(`The current request is too large to fit the ${MAX_CONTEXT_TOKENS.toLocaleString()}-token context budget.`);
-    }
+    selected = compactHistory(selected);
+    const compactedBytes = serializedContextBytes(selected);
 
     const finalCount = await countContextTokens(selected, deadlineAt);
     if (finalCount !== null && finalCount > MAX_CONTEXT_TOKENS) {
         throw new Error(`Could not reduce the request below the ${MAX_CONTEXT_TOKENS.toLocaleString()}-token context budget.`);
     }
-    const tokenCount = finalCount ?? serializedBytes;
+    if (finalCount === null && compactedBytes > SAFE_SERIALIZED_CONTEXT_BYTES) {
+        throw new Error(`The current request is too large to fit the ${MAX_CONTEXT_TOKENS.toLocaleString()}-token context budget.`);
+    }
+    const tokenCount = finalCount ?? compactedBytes;
 
     console.info(JSON.stringify({
         event: "agent_context_compacted",

@@ -1,23 +1,23 @@
 import {
     bashToolDefinition,
-    createTodosToolDefinition,
     questionToolDefinition,
     readToolDefinition,
     writeToolDefinition,
-} from "./tooldefinition";
-import type { FunctionResultStep, Step, UserInputStep } from "./types";
-import { client } from "./types";
-import type { Tool } from "./types";
-import { bashTool, createTodosTool, readTool, writeTool } from "./toolabs";
+} from "./tools/definitions";
+import type { FunctionResultStep, Step, UserInputStep } from "./agent-types";
+import { client } from "./config";
+import type { Tool, ToolResult } from "./agent-types";
+import { bashTool, readTool, writeTool } from "./tools/executor";
 import type { AgentClientEvent, CompleteEvent, PreviewEvent, QuestionEvent, UpdateEvent } from "../shared/agent-events";
-import { startProjectPreview } from "./preview";
-import { validateProject } from "./validation";
-import { AGENT_RUN_TIMEOUT_MS, remainingTimeout, timeoutError, withDeadline } from "./deadline";
-import { AGENT_MODEL, AGENT_SYSTEM_INSTRUCTION, AGENT_TOOL_DEFINITIONS, MAX_CONTEXT_TOKENS, prepareAgentContext } from "./context";
-import { getProjectSandbox } from "./workspace";
-import { isProjectStorageEnabled, saveProjectSnapshot } from "./storage";
-import { createAgentRunMetrics, logAgentRunMetrics } from "./metrics";
-import type { ValidationMetrics } from "./metrics";
+import { startProjectPreview } from "./workspace/preview";
+import { validateProject, validateProjectInBrowser } from "./workspace/validation";
+import { AGENT_RUN_TIMEOUT_MS, remainingTimeout, AgentTimeoutError, withDeadline } from "./deadline";
+import { AGENT_MODEL, AGENT_SYSTEM_INSTRUCTION, AGENT_TOOL_DEFINITIONS, MAX_CONTEXT_TOKENS, prepareAgentContext } from "./agent-context";
+import { getProjectSandbox } from "./workspace/manager";
+import { isProjectStorageEnabled, saveProjectSnapshot } from "./workspace/storage";
+import { createAgentRunMetrics, logAgentRunMetrics } from "./observability/metrics";
+import type { ValidationMetrics } from "./observability/metrics";
+import { withSpan } from "./observability/telemetry";
 
 export type WaitingForUser = {
     state: "waiting_for_user";
@@ -42,7 +42,7 @@ const tools = new Map<string, Tool>([
     [bashToolDefinition.name, bashTool],
     [readToolDefinition.name, readTool],
     [writeToolDefinition.name, writeTool],
-    [createTodosToolDefinition.name, createTodosTool],
+
 ]);
 
 const MAX_PREVIEW_REPAIR_ATTEMPTS = 1;
@@ -58,12 +58,14 @@ async function saveWorkspaceCheckpoint(
     deadlineAt: number,
     emit: AgentEventEmitter,
 ): Promise<string | null> {
-    const sandbox = await withDeadline(getProjectSandbox(projectId), deadlineAt);
-    const version = await saveProjectSnapshot(sandbox, projectId, deadlineAt);
-    if (version) {
-        await emit({ event: "update", data: { message: "Saved a project snapshot to S3." } });
-    }
-    return version;
+    return withSpan("tyox.project.snapshot.save", { "tyox.project.id": projectId }, async () => {
+        const sandbox = await withDeadline(getProjectSandbox(projectId), deadlineAt);
+        const version = await saveProjectSnapshot(sandbox, projectId, deadlineAt);
+        if (version) {
+            await emit({ event: "update", data: { message: "Saved a project snapshot to S3." } });
+        }
+        return version;
+    });
 }
 
 async function requestNextTurn(
@@ -122,12 +124,24 @@ async function requestNextTurn(
                         : `Context ready: ${context.tokenCount.toLocaleString()} of ${MAX_CONTEXT_TOKENS.toLocaleString()} tokens.`,
             },
         });
-        const response = await client.interactions.create({
-            model: AGENT_MODEL,
-            input: history,
-            system_instruction: AGENT_SYSTEM_INSTRUCTION,
-            tools: AGENT_TOOL_DEFINITIONS,
-        }, { signal: controller.signal });
+        const response = await withSpan("gen_ai.request", {
+            "gen_ai.request.model": AGENT_MODEL,
+            "tyox.agent.turn": turn,
+        }, async (span) => {
+            const result = await client.interactions.create({
+                model: AGENT_MODEL,
+                input: history,
+                system_instruction: AGENT_SYSTEM_INSTRUCTION,
+                tools: AGENT_TOOL_DEFINITIONS,
+            }, { signal: controller.signal });
+            if (typeof result.usage?.total_input_tokens === "number") {
+                span.setAttribute("gen_ai.usage.input_tokens", result.usage.total_input_tokens);
+            }
+            if (typeof result.usage?.total_output_tokens === "number") {
+                span.setAttribute("gen_ai.usage.output_tokens", result.usage.total_output_tokens);
+            }
+            return result;
+        });
         if (typeof response.usage?.total_input_tokens === "number") {
             metrics.inputTokens = (metrics.inputTokens ?? 0) + response.usage.total_input_tokens;
         }
@@ -153,7 +167,7 @@ async function requestNextTurn(
             errorName: error instanceof Error ? error.name : "unknown",
         }));
         if (timedOut && runDeadlineIsLimiting) {
-            throw timeoutError();
+            throw new AgentTimeoutError();
         }
         if (timedOut) {
             throw new Error(`Gemini did not respond within ${GEMINI_REQUEST_TIMEOUT_MS / 1000} seconds. The request was cancelled; you can try again.`);
@@ -174,7 +188,6 @@ function describeToolAction(name: string, args: Record<string, unknown>): string
         return `Reading ${args.path}…`;
     }
     if (name === bashToolDefinition.name) return "Running a project command…";
-    if (name === createTodosToolDefinition.name) return "Updating the task list…";
     return "Working on the project…";
 }
 
@@ -186,7 +199,6 @@ function describeToolCompletion(name: string, args: Record<string, unknown>): st
         return `Read ${args.path}.`;
     }
     if (name === bashToolDefinition.name) return "Project command finished.";
-    if (name === createTodosToolDefinition.name) return "Task list updated.";
     return "Action finished.";
 }
 
@@ -232,7 +244,7 @@ async function runLoop(
     const deadlineAt = Date.now() + AGENT_RUN_TIMEOUT_MS;
     const metrics = createAgentRunMetrics(convo_id, project_id);
     try {
-        await withDeadline(runLoopUntilDeadline(history, convo_id, project_id, emit, deadlineAt, metrics), deadlineAt);
+        await runLoopUntilDeadline(history, convo_id, project_id, emit, deadlineAt, metrics);
     } catch (error) {
         metrics.outcome = "failed";
         metrics.errorType = error instanceof Error ? error.name : "unknown";
@@ -256,6 +268,7 @@ async function runLoopUntilDeadline(
 
     let toolCalls = 0;
     agentLoop: while (true) {
+        remainingTimeout(deadlineAt, AGENT_RUN_TIMEOUT_MS);
         if (turn >= MAX_AGENT_TURNS) {
             throw new Error(`Agent stopped after ${MAX_AGENT_TURNS} model turns without finishing. Try a more specific request.`);
         }
@@ -331,29 +344,29 @@ async function runLoopUntilDeadline(
                 toolCalls += 1;
 
                 const tool = tools.get(step.name);
-                let output: unknown;
-                let toolFailed = false;
+                let output: ToolResult;
                 await emit({
                     event: "update",
                     data: { message: describeToolAction(step.name, step.arguments) },
                 });
                 try {
                     if (!tool) throw new Error(`Unknown tool: ${step.name}`);
-                    output = await withDeadline(
-                        tool.execute({ ...step.arguments, project_id, _deadlineAt: deadlineAt }),
-                        deadlineAt,
-                    );
+                    output = await withSpan("tyox.agent.tool", {
+                        "tyox.agent.tool.name": step.name,
+                        "tyox.agent.turn": turn,
+                    }, async (span) => {
+                        const result = await withDeadline(
+                            tool.execute({ ...step.arguments, project_id, _deadlineAt: deadlineAt }),
+                            deadlineAt,
+                        );
+                        span.setAttribute("tyox.agent.tool.success", result.success);
+                        return result;
+                    });
                 } catch (error) {
-                    toolFailed = true;
-                    output = error instanceof Error ? error.message : String(error);
+                    output = { success: false, output: error instanceof Error ? error.message : String(error) };
                 }
 
-                const returnedFailure = typeof output === "object"
-                    && output !== null
-                    && "success" in output
-                    && output.success === false;
-
-                if (toolFailed || returnedFailure) {
+                if (!output.success) {
                     metrics.failedToolCalls += 1;
                     await emit({
                         event: "update",
@@ -403,16 +416,19 @@ async function runLoopUntilDeadline(
                     const validationRun: ValidationMetrics = {
                         tests: "not_run",
                         build: "not_run",
+                        browser: "not_run",
                         result: "failed",
                         durationMs: 0,
                     };
                     metrics.validationRuns.push(validationRun);
                     const validationStartedAt = Date.now();
                     try {
-                        await validateProject(project_id, emit, deadlineAt, (stage, status) => {
+                        await withSpan("tyox.project.validation", {
+                            "tyox.project.id": project_id,
+                            "tyox.validation.attempt": metrics.validationRuns.length,
+                        }, () => validateProject(project_id, emit, deadlineAt, (stage, status) => {
                             validationRun[stage] = status;
-                        });
-                        validationRun.result = "passed";
+                        }));
                     } finally {
                         validationRun.durationMs = Date.now() - validationStartedAt;
                     }
@@ -422,11 +438,20 @@ async function runLoopUntilDeadline(
                     const previewStartedAt = Date.now();
                     let url: string;
                     try {
-                        url = await startProjectPreview(project_id, emit, deadlineAt);
+                        url = await withSpan("tyox.project.preview.start", {
+                            "tyox.project.id": project_id,
+                        }, () => startProjectPreview(project_id, emit, deadlineAt));
                         previewAttempt.result = "ready";
                     } finally {
                         previewAttempt.durationMs = Date.now() - previewStartedAt;
                     }
+                    await withSpan("tyox.project.browser_validation", {
+                        "tyox.project.id": project_id,
+                        "tyox.validation.attempt": metrics.validationRuns.length,
+                    }, () => validateProjectInBrowser(project_id, emit, deadlineAt, (stage, status) => {
+                        validationRun[stage] = status;
+                    }));
+                    validationRun.result = "passed";
                     await emit({ event: "preview", data: { url } });
                 } catch (error) {
                     const reason = error instanceof Error ? error.message : String(error);

@@ -13,4 +13,4 @@ COPY shared/ /app/shared/
 
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["bun", "run", "index.ts"]
+CMD ["bun", "run", "server.ts"]

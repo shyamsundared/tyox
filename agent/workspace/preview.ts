@@ -1,7 +1,7 @@
-import { ensureProjectDependencies, getProjectSandbox, PROJECT_ROOT } from "./workspace";
-import type { PreviewEvent, UpdateEvent } from "../shared/agent-events";
+import { ensureProjectDependencies, getProjectSandbox, PROJECT_ROOT } from "./manager";
+import type { PreviewEvent, UpdateEvent } from "../../shared/agent-events";
 import { CommandExitError } from "e2b";
-import { remainingTimeout, withDeadline } from "./deadline";
+import { remainingTimeout, withDeadline } from "../deadline";
 
 const PREVIEW_PORT = 4173;
 const PREVIEW_PROCESS_TIMEOUT_MS = 30 * 60 * 1000;

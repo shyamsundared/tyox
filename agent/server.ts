@@ -1,14 +1,18 @@
 import express from "express";
-import { main, resume, type AgentEventEmitter, type AgentRunEvent, type WaitingForUser } from "./output";
-import { initializeProjectWorkspace } from "./workspace";
-import { startProjectPreview } from "./preview";
+import { z } from "zod";
+import { ProjectBusyError, withProjectRun } from "./project-runs";
+import { main, resume, type AgentEventEmitter, type AgentRunEvent, type WaitingForUser } from "./agent-loop";
+import { initializeProjectWorkspace } from "./workspace/manager";
+import { startProjectPreview } from "./workspace/preview";
 import { db } from "../db/db";
 import { formatSseEvent } from "../shared/agent-events";
-import { AGENT_RUN_TIMEOUT_MS, withDeadline } from "./deadline";
-import { AGENT_MODEL } from "./context";
+import { AGENT_RUN_TIMEOUT_MS } from "./deadline";
+import { AGENT_MODEL } from "./agent-context";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { shutdownTelemetry, startTelemetry, tracingMiddleware, withSpan } from "./observability/telemetry";
 
 const app = express();
+app.use(tracingMiddleware);
 app.use(express.json());
 
 const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
@@ -33,10 +37,16 @@ app.use("/api/v1/agent", (req, res, next) => {
 app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
     const deadlineAt = Date.now() + AGENT_RUN_TIMEOUT_MS;
     try {
-        const result = await withDeadline(initializeProjectWorkspace(req.params.projectId, deadlineAt), deadlineAt);
-        const previewUrl = await startProjectPreview(req.params.projectId, async () => {}, deadlineAt);
-        res.json({ initialized: true, packagesInstalled: result.installedPackages, previewUrl });
+        await withProjectRun(req.params.projectId, async () => {
+            const result = await initializeProjectWorkspace(req.params.projectId, deadlineAt);
+            const previewUrl = await startProjectPreview(req.params.projectId, async () => {}, deadlineAt);
+            res.json({ initialized: true, packagesInstalled: result.installedPackages, previewUrl });
+        });
     } catch (error) {
+        if (error instanceof ProjectBusyError) {
+            res.status(409).json({ error: error.message });
+            return;
+        }
         const errorReference = randomUUID();
         console.error(JSON.stringify({
             event: "project_workspace_initialization_failed",
@@ -49,7 +59,6 @@ app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
 });
 
 type PendingRun = Pick<WaitingForUser, "history" | "call_id" | "tool_name" | "project_id" | "question">;
-const resumingConversations = new Set<string>();
 
 async function savePendingRun(conversationId: string, pending: PendingRun | null) {
     await db.orm.public.ConversationHistory
@@ -109,7 +118,10 @@ async function streamAgentEvents(
     startSse(res);
     const emit: AgentEventEmitter = (event) => emitAgentEvent(res, event);
     try {
-        await run(emit);
+        await withSpan("tyox.agent.run", {
+            ...(context.conversationId ? { "conversation.id": context.conversationId } : {}),
+            ...(context.projectId ? { "tyox.project.id": context.projectId } : {}),
+        }, () => run(emit));
     } catch (error) {
         console.error(JSON.stringify({
             event: "agent_run_failed",
@@ -126,63 +138,80 @@ async function streamAgentEvents(
     }
 }
 
+const projectIdSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/);
+const promptSchema = z.object({
+    project_id: projectIdSchema,
+    conversation_id: z.string().min(1).max(128),
+    message: z.string().trim().min(1).max(20_000),
+});
+const answerSchema = z.object({
+    project_id: projectIdSchema,
+    conversation_id: z.string().min(1).max(128),
+    call_id: z.string().min(1).max(256),
+    answer: z.string().trim().min(1).max(20_000),
+});
+
 app.post("/api/v1/agent/loop", async (req, res) => {
-    const { conversation_id, message, project_id } = req.body 
-    await streamAgentEvents(
+    const result = promptSchema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ error: "A project, conversation, and prompt of 1–20,000 characters are required" });
+        return;
+    }
+    const { conversation_id, message, project_id } = result.data;
+    await withProjectRun(project_id, () => streamAgentEvents(
         res,
         (emit) => main(message, conversation_id, project_id, emit),
         { conversationId: conversation_id, projectId: project_id },
-    );
+    ));
 });
 
 app.post("/api/v1/agent/resume", async (req, res) => {
-    const { conversation_id, call_id, answer } = req.body as {
-        conversation_id?: string;
-        call_id?: string;
-        answer?: string;
-    };
-    if (!conversation_id || !call_id || typeof answer !== "string") {
-        res.status(400).json({ error: "conversation_id, call_id, and answer are required" });
+    const result = answerSchema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ error: "A project, conversation, call ID, and answer of 1–20,000 characters are required" });
         return;
     }
-
-    if (resumingConversations.has(conversation_id)) {
-        res.status(409).json({ error: "A response is already being processed for this conversation" });
-        return;
-    }
-
-    let pending: PendingRun | null;
-    try {
-        pending = await loadPendingRun(conversation_id);
-    } catch (error) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-        return;
-    }
-    if (!pending || pending.call_id !== call_id) {
-        res.status(409).json({ error: "No matching pending question for this conversation" });
-        return;
-    }
-
-    const pendingRun = pending;
-    resumingConversations.add(conversation_id);
-    try {
+    const { project_id, conversation_id, call_id, answer } = result.data;
+    await withProjectRun(project_id, async () => {
+        // Read after acquiring the guard so a simultaneous answer cannot reuse old state.
+        const pending = await loadPendingRun(conversation_id);
+        if (!pending || pending.project_id !== project_id || pending.call_id !== call_id) {
+            res.status(409).json({ error: "No matching pending question for this project" });
+            return;
+        }
         await streamAgentEvents(res, (emit) => resume(
-            pendingRun.history,
+            pending.history,
             conversation_id,
-            pendingRun.call_id,
-            pendingRun.tool_name,
-            pendingRun.project_id,
+            pending.call_id,
+            pending.tool_name,
+            project_id,
             answer,
             emit,
-        ), { conversationId: conversation_id, projectId: pendingRun.project_id });
-    } finally {
-        resumingConversations.delete(conversation_id);
+        ), { conversationId: conversation_id, projectId: project_id });
+    });
+});
+
+app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error instanceof ProjectBusyError) {
+        res.status(409).json({ error: error.message });
+        return;
     }
+    const errorReference = randomUUID();
+    console.error(JSON.stringify({ event: "agent_request_failed", errorReference, error: error.message }));
+    res.status(500).json({ error: `Agent request failed. Reference: ${errorReference}` });
 });
 
 app.get("/health", (_req, res) => res.status(200).send("ok"));
 
 const port = Number(process.env.PORT ?? 3001);
+startTelemetry();
 app.listen(port, "0.0.0.0", () => {
     console.log(`Agent backend listening on port ${port} (model: ${AGENT_MODEL})`);
+});
+
+process.once("SIGTERM", () => {
+    void shutdownTelemetry().finally(() => process.exit(0));
+});
+process.once("SIGINT", () => {
+    void shutdownTelemetry().finally(() => process.exit(0));
 });

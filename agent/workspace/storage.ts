@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { CommandExitError, type Sandbox } from "e2b";
-import { remainingTimeout, withDeadline } from "./deadline";
-import { PROJECT_ROOT } from "./project-paths";
+import { remainingTimeout, withDeadline } from "../deadline";
+import { PROJECT_ROOT } from "../project-paths";
 
 const ARCHIVE_PATH_PREFIX = "/tmp/tyox-project-snapshot-";
 const STORAGE_REQUEST_TIMEOUT_MS = 90_000;

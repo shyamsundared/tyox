@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { trace } from "@opentelemetry/api";
 
 export type CheckStatus = "not_run" | "passed" | "failed" | "skipped";
 
 export type ValidationMetrics = {
     tests: CheckStatus;
     build: CheckStatus;
+    browser: CheckStatus;
     result: "passed" | "failed";
     durationMs: number;
 };
@@ -55,5 +57,11 @@ export function createAgentRunMetrics(conversationId: string, projectId: string)
 export function logAgentRunMetrics(metrics: AgentRunMetrics): void {
     metrics.durationMs = Date.now() - metrics.startedAt;
     const { startedAt: _startedAt, ...summary } = metrics;
-    console.info(JSON.stringify({ event: "agent_run_summary", ...summary }));
+    const spanContext = trace.getActiveSpan()?.spanContext();
+    console.info(JSON.stringify({
+        event: "agent_run_summary",
+        traceId: spanContext?.traceId,
+        spanId: spanContext?.spanId,
+        ...summary,
+    }));
 }

@@ -1,12 +1,13 @@
-import { CommandExitError, Sandbox } from "e2b";
-import { reactStarterFiles } from "./react-starter";
-import { remainingTimeout, withDeadline } from "./deadline";
-import { PROJECT_ROOT } from "./project-paths";
+import { CommandExitError, Sandbox, SandboxNotFoundError } from "e2b";
+import { reactStarterFiles } from "./starter-files";
+import { remainingTimeout, withDeadline } from "../deadline";
+import { PROJECT_ROOT } from "../project-paths";
 import { restoreProjectSnapshot, saveProjectSnapshot } from "./storage";
 
 const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
 const INSTALL_TIMEOUT_MS = 120_000;
-const projectSandboxes = new Map<string, Promise<Sandbox>>();
+const projectSandboxes = new Map<string, Sandbox>();
+const pendingAcquisitions = new Map<string, Promise<Sandbox>>();
 
 type PackageManifest = {
     scripts?: Record<string, string>;
@@ -23,14 +24,10 @@ const requiredPackages = {
         ),
     ),
 };
+const checkCommand = "if [ -x node_modules/.bin/vite ] && [ -x node_modules/.bin/tsc ]; then printf installed; else printf missing; fi";
 
 async function seedReactStarter(sandbox: Sandbox) {
-    try {
-        await sandbox.files.read(`${PROJECT_ROOT}/package.json`);
-        return;
-    } catch {
-        // A missing package.json means this workspace has not been initialized yet.
-    }
+    if (await sandbox.files.exists(`${PROJECT_ROOT}/package.json`)) return;
 
     for (const [path, content] of Object.entries(reactStarterFiles)) {
         await sandbox.files.write(`${PROJECT_ROOT}/${path}`, content);
@@ -53,11 +50,19 @@ async function createOrReconnect(projectId: string): Promise<Sandbox> {
     const [existing] = await matches.nextItems();
 
     if (existing) {
-        const sandbox = await Sandbox.connect(existing.sandboxId);
-        if (!await sandbox.files.exists(`${PROJECT_ROOT}/package.json`)) {
-            await restoreOrSeedWorkspace(sandbox, projectId);
+        let sandbox: Sandbox | undefined;
+        try {
+            sandbox = await Sandbox.connect(existing.sandboxId);
+        } catch (error) {
+            // Expiry between list and connect is expected; other failures should surface.
+            if (!(error instanceof SandboxNotFoundError)) throw error;
         }
-        return sandbox;
+        if (sandbox) {
+            if (!await sandbox.files.exists(`${PROJECT_ROOT}/package.json`)) {
+                await restoreOrSeedWorkspace(sandbox, projectId);
+            }
+            return sandbox;
+        }
     }
 
     const sandbox = await Sandbox.create({
@@ -65,11 +70,6 @@ async function createOrReconnect(projectId: string): Promise<Sandbox> {
         timeoutMs: SANDBOX_TIMEOUT_MS,
         allowInternetAccess: true,
     });
-    const setup = await sandbox.commands.run(`mkdir -p ${PROJECT_ROOT}`, { timeoutMs: 10_000 });
-    if (setup.exitCode !== 0) {
-        await sandbox.kill();
-        throw new Error(`Could not create the project directory: ${setup.stderr || setup.stdout}`);
-    }
     try {
         await restoreOrSeedWorkspace(sandbox, projectId);
     } catch (error) {
@@ -79,7 +79,25 @@ async function createOrReconnect(projectId: string): Promise<Sandbox> {
     return sandbox;
 }
 
-export async function getProjectSandbox(projectId: string): Promise<Sandbox> {
+async function acquireSandbox(projectId: string): Promise<Sandbox> {
+    const cached = projectSandboxes.get(projectId);
+    if (cached) {
+        try {
+            await cached.setTimeout(SANDBOX_TIMEOUT_MS);
+            return cached;
+        } catch (error) {
+            if (!(error instanceof SandboxNotFoundError)) throw error;
+            projectSandboxes.delete(projectId);
+        }
+    }
+
+    const sandbox = await createOrReconnect(projectId);
+    await sandbox.setTimeout(SANDBOX_TIMEOUT_MS);
+    projectSandboxes.set(projectId, sandbox);
+    return sandbox;
+}
+
+export function getProjectSandbox(projectId: string): Promise<Sandbox> {
     if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
         throw new Error("Invalid project ID");
     }
@@ -87,24 +105,17 @@ export async function getProjectSandbox(projectId: string): Promise<Sandbox> {
         throw new Error("E2B_API_KEY is missing. Add it to agent/.env to use project workspaces.");
     }
 
-    let sandboxPromise = projectSandboxes.get(projectId);
-    if (!sandboxPromise) {
-        sandboxPromise = createOrReconnect(projectId);
-        projectSandboxes.set(projectId, sandboxPromise);
-    }
+    const pending = pendingAcquisitions.get(projectId);
+    if (pending) return pending;
 
-    try {
-        const sandbox = await sandboxPromise;
-        await sandbox.setTimeout(SANDBOX_TIMEOUT_MS);
-        return sandbox;
-    } catch (error) {
-        projectSandboxes.delete(projectId);
-        throw error;
-    }
-}
-
-export function clearProjectSandboxCache(projectId: string) {
-    projectSandboxes.delete(projectId);
+    // Store the promise before yielding so callers share creation AND timeout refresh.
+    const acquisition = acquireSandbox(projectId).finally(() => {
+        if (pendingAcquisitions.get(projectId) === acquisition) {
+            pendingAcquisitions.delete(projectId);
+        }
+    });
+    pendingAcquisitions.set(projectId, acquisition);
+    return acquisition;
 }
 
 export async function ensureProjectDependencies(sandbox: Sandbox, deadlineAt: number): Promise<boolean> {
@@ -116,6 +127,11 @@ export async function ensureProjectDependencies(sandbox: Sandbox, deadlineAt: nu
     }
 
     let manifestChanged = false;
+    manifest.scripts ??= {};
+    if (!manifest.scripts["test:e2e"]) {
+        manifest.scripts["test:e2e"] = "playwright test";
+        manifestChanged = true;
+    }
     for (const [section, required] of Object.entries(requiredPackages) as Array<["dependencies" | "devDependencies", Record<string, string>]>) {
         const packages = { ...manifest[section] };
         for (const [name, version] of Object.entries(required)) {
@@ -131,13 +147,22 @@ export async function ensureProjectDependencies(sandbox: Sandbox, deadlineAt: nu
         await withDeadline(sandbox.files.write(`${PROJECT_ROOT}/package.json`, `${JSON.stringify(manifest, null, 2)}\n`), deadlineAt);
     }
 
-    const needsTypeScript = /\btsc\b/.test(manifest.scripts?.build ?? "");
-    const checkCommand = `if [ -x node_modules/.bin/vite ]${needsTypeScript ? " && [ -x node_modules/.bin/tsc ]" : ""}; then printf installed; else printf missing; fi`;
-    const check = await withDeadline(sandbox.commands.run(checkCommand, {
+    await withDeadline(sandbox.commands.run("mkdir -p e2e", {
         cwd: PROJECT_ROOT,
         timeoutMs: remainingTimeout(deadlineAt, 10_000),
     }), deadlineAt);
-    const wasInstalled = check.stdout.trim() === "installed";
+    for (const path of ["playwright.config.ts", "e2e/smoke.spec.ts"]) {
+        if (!await sandbox.files.exists(`${PROJECT_ROOT}/${path}`)) {
+            const contents = reactStarterFiles[path];
+            if (contents) await withDeadline(sandbox.files.write(`${PROJECT_ROOT}/${path}`, contents), deadlineAt);
+        }
+    }
+
+    const installStatus = await withDeadline(sandbox.commands.run(checkCommand, {
+        cwd: PROJECT_ROOT,
+        timeoutMs: remainingTimeout(deadlineAt, 10_000),
+    }), deadlineAt);
+    const wasInstalled = installStatus.stdout.trim() === "installed";
 
     if (!wasInstalled || manifestChanged) {
         try {

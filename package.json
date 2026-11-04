@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev:agent": "bun run --cwd agent index.ts",
+    "dev:agent": "bun run --cwd agent server.ts",
     "dev:backend": "bun run --cwd backend index.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "test:backend": "bun run --cwd backend test",

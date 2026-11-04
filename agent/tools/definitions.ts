@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import type { Tooldef } from "./types";
+import type { Tooldef } from "../agent-types";
 
 export const bashToolDefinition: Tooldef = {
     type: "function",
@@ -51,29 +51,5 @@ export const questionToolDefinition: Tooldef = {
             question: { type: Type.STRING, description: "The question to ask." },
         },
         required: ["question"],
-    },
-};
-
-export const createTodosToolDefinition: Tooldef = {
-    type: "function",
-    name: "Create_Todos",
-    description: "Save an ordered task plan for the current project.",
-    parameters: {
-        type: Type.OBJECT,
-        properties: {
-            tasks: {
-                type: Type.ARRAY,
-                description: "The ordered tasks in the plan.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING, description: "Short task title." },
-                        description: { type: Type.STRING, description: "Optional task details." },
-                    },
-                    required: ["title"],
-                },
-            },
-        },
-        required: ["tasks"],
     },
 };

@@ -7,6 +7,7 @@ export const reactStarterFiles: Record<string, string> = {
         scripts: {
             dev: "vite",
             test: "vitest run",
+            "test:e2e": "playwright test",
             build: "tsc --noEmit && vite build",
             preview: "vite preview",
         },
@@ -23,6 +24,7 @@ export const reactStarterFiles: Record<string, string> = {
             "@testing-library/jest-dom": "^6.6.4",
             "@testing-library/react": "^16.3.0",
             "@testing-library/user-event": "^14.6.1",
+            "@playwright/test": "^1.56.1",
             jsdom: "^26.1.0",
             tailwindcss: "^4.1.11",
             typescript: "^5.7.2",
@@ -62,6 +64,31 @@ export default mergeConfig(viteConfig, defineConfig({
     clearMocks: true,
   },
 }));
+`,
+    "playwright.config.ts": `import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 15_000,
+  expect: { timeout: 3_000 },
+  reporter: "list",
+  use: {
+    baseURL: "http://127.0.0.1:4173",
+    browserName: "chromium",
+    headless: true,
+  },
+});
+`,
+    "e2e/smoke.spec.ts": `import { expect, test } from "@playwright/test";
+
+test("the generated app renders visible content", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+
+  await page.goto("/");
+  await expect(page.locator("#root")).not.toBeEmpty();
+  expect(runtimeErrors).toEqual([]);
+});
 `,
     "src/test/setup.ts": `import "@testing-library/jest-dom/vitest";
 `,
