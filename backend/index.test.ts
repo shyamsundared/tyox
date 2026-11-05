@@ -9,7 +9,6 @@ const user = { id: "user-1", username: "shyam", password: "hashed" };
 const conversation = { id: "conversation-1", projectId: project.id };
 
 let projectExists = true;
-let userExists = true;
 let conversationExists = true;
 let requestedUserId = user.id;
 let nextAgentEvents = "event: complete\ndata: {\"message\":\"Done\"}\n\n";
@@ -20,7 +19,7 @@ const db = {
     orm: {
         public: {
             User: {
-                where: () => ({ first: async () => userExists ? user : undefined }),
+                where: () => ({ first: async () => user }),
                 create: async () => user,
             },
             Project: {
@@ -40,17 +39,11 @@ const db = {
                     include: () => ({ orderBy: () => ({ all: async () => [] }) }),
                 }),
             },
-            AgentRun: {
-                create: async (input: Record<string, unknown>) => input,
-            },
             Conversation: {
                 create: async (input: Record<string, unknown>) => {
                     savedMessages.push(input);
                     return input;
                 },
-            },
-            Todo: {
-                where: () => ({ orderBy: () => ({ all: async () => [] }) }),
             },
         },
     },
@@ -93,7 +86,6 @@ afterAll(async () => {
 
 beforeEach(() => {
     projectExists = true;
-    userExists = true;
     conversationExists = true;
     nextAgentEvents = "event: complete\ndata: {\"message\":\"Done\"}\n\n";
     savedMessages.length = 0;
