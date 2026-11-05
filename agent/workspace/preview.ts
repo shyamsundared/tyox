@@ -1,107 +1,69 @@
-import { ensureProjectDependencies, getProjectSandbox, PROJECT_ROOT } from "./manager";
-import type { PreviewEvent, UpdateEvent } from "../../shared/agent-events";
-import { CommandExitError } from "e2b";
-import { remainingTimeout, withDeadline } from "../deadline";
+import type { Sandbox } from "e2b";
+import { PROJECT_ROOT } from "../config";
+import { timeLeft } from "../utils";
+import { getProjectSandbox } from "./manager";
 
 const PREVIEW_PORT = 4173;
-const PREVIEW_PROCESS_TIMEOUT_MS = 30 * 60 * 1000;
-const DIAGNOSTIC_LOG_LIMIT = 6000;
+const PREVIEW_TIMEOUT_MS = 30 * 60 * 1000;
+const READY_CHECK_ATTEMPTS = 30;
 
-type PackageJson = {
-    scripts?: Record<string, unknown>;
-};
-
-type PreviewEmitter = (event: PreviewEvent | UpdateEvent) => Promise<void>;
-
-function commandFailure(error: unknown): string {
-    if (error instanceof CommandExitError) {
-        const output = [error.stderr, error.stdout, error.error].filter(Boolean).join("\n").trim();
-        return `Command exited with status ${error.exitCode}${output ? `: ${output.slice(-DIAGNOSTIC_LOG_LIMIT)}` : ""}`;
-    }
-    return error instanceof Error ? error.message : String(error);
+// asks the dev server for the app's entry file. returns the http status, "000" means nothing is running.
+// the host header matters because vite blocks hosts that aren't allowed with a 403
+async function checkPreviewServer(sandbox: Sandbox, host: string, deadline: number): Promise<string> {
+    const url = `http://127.0.0.1:${PREVIEW_PORT}/src/main.tsx`;
+    const result = await sandbox.commands.run(
+        `curl -s -m 3 -o /dev/null -w "%{http_code}" -H "Host: ${host}" ${url} || true`,
+        { timeoutMs: timeLeft(deadline, 5_000) },
+    );
+    return result.stdout.trim();
 }
 
-export async function startProjectPreview(projectId: string, emit: PreviewEmitter, deadlineAt: number): Promise<string> {
-    const sandbox = await withDeadline(getProjectSandbox(projectId), deadlineAt);
-    await ensureProjectDependencies(sandbox, deadlineAt);
-    let packageJson: PackageJson;
-    try {
-        packageJson = JSON.parse(await withDeadline(sandbox.files.read(`${PROJECT_ROOT}/package.json`), deadlineAt)) as PackageJson;
-    } catch {
-        throw new Error("I couldn't find a valid package.json in the project workspace.");
-    }
+function isWorking(status: string): boolean {
+    return /^[234]\d\d$/.test(status) && status !== "403";
+}
 
-    const scripts = packageJson.scripts ?? {};
-    const scriptName = ["dev", "start"].find((name) => typeof scripts[name] === "string");
-    if (!scriptName) {
-        throw new Error("The project needs a 'dev' or 'start' script in package.json before it can be previewed.");
-    }
-
-    await emit({ event: "update", data: { message: "Preparing the app preview…" } });
-    const script = String(scripts[scriptName]);
-    const probePath = /\bvite\b/.test(script) ? "/src/main.tsx" : "/";
-    const previewHost = sandbox.getHost(PREVIEW_PORT);
-    const readyWaitMs = remainingTimeout(deadlineAt, 30_000);
-    const readyCheck = `node -e 'const http=require("node:http");const until=Date.now()+${readyWaitMs};function check(){const req=http.get({hostname:"127.0.0.1",port:${PREVIEW_PORT},path:"${probePath}",headers:{host:"${previewHost}"}},r=>{let body="";r.on("data",chunk=>{if(body.length<${DIAGNOSTIC_LOG_LIMIT})body+=chunk});r.on("end",()=>{if(r.statusCode<500&&r.statusCode!==403){console.log("ready");return}console.log("error:"+r.statusCode+"\\n"+body);})});req.on("error",retry)}function retry(){if(Date.now()>until){console.log("timeout");return}setTimeout(check,500)}check()'`;
-    const currentServerRequest = sandbox.commands.run(
-        `node -e 'const http=require("node:http");const req=http.get({hostname:"127.0.0.1",port:${PREVIEW_PORT},path:"${probePath}",headers:{host:"${previewHost}"}},r=>{console.log(r.statusCode);r.resume()});req.on("error",()=>console.log("not-ready"))'`,
-        { cwd: PROJECT_ROOT, timeoutMs: remainingTimeout(deadlineAt, 5_000) },
-    );
-    const currentServer = await withDeadline(currentServerRequest, deadlineAt);
-
-    const currentStatus = currentServer.stdout.trim();
-    if (currentStatus === "403" || /^5\d\d$/.test(currentStatus)) {
-        const processes = await withDeadline(sandbox.commands.list(), deadlineAt);
-        const previewProcesses = processes.filter((process) => {
-            const command = [process.cmd, ...process.args].join(" ");
-            return process.cwd === PROJECT_ROOT && (/\bvite\b/.test(command) || /\bnext\b/.test(command) || /npm run (dev|start)/.test(command));
-        });
-        for (const process of previewProcesses) {
-            await withDeadline(sandbox.commands.kill(process.pid), deadlineAt).catch(() => false);
+async function stopOldServer(sandbox: Sandbox) {
+    const processes = await sandbox.commands.list();
+    for (const process of processes) {
+        const command = [process.cmd, ...process.args].join(" ");
+        if (process.cwd === PROJECT_ROOT && /\bvite\b|npm run dev/.test(command)) {
+            await sandbox.commands.kill(process.pid).catch(() => false);
         }
     }
+}
 
-    if (!/^2\d\d$/.test(currentStatus) && !/^3\d\d$/.test(currentStatus) && !/^4(?!03)\d\d$/.test(currentStatus)) {
-        let command: string;
-        let envs: Record<string, string> | undefined;
-        if (/\bvite\b/.test(script)) {
-            command = `npm run ${scriptName} -- --host 0.0.0.0 --port ${PREVIEW_PORT} --strictPort`;
-            envs = { __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: previewHost };
-        } else if (/\bnext\b/.test(script)) {
-            command = `npm run ${scriptName} -- --hostname 0.0.0.0 --port ${PREVIEW_PORT}`;
-        } else {
-            command = `HOST=0.0.0.0 PORT=${PREVIEW_PORT} npm run ${scriptName}`;
-        }
+export async function startProjectPreview(
+    projectId: string,
+    sendUpdate: (message: string) => void,
+    deadline: number,
+): Promise<string> {
+    const sandbox = await getProjectSandbox(projectId);
+    const host = sandbox.getHost(PREVIEW_PORT);
+    const previewUrl = `https://${host}`;
 
-        await emit({ event: "update", data: { message: "Starting the generated React app…" } });
-        let serverOutput = "";
-        try {
-            const launch = sandbox.commands.run(command, {
-                cwd: PROJECT_ROOT,
-                background: true,
-                timeoutMs: PREVIEW_PROCESS_TIMEOUT_MS,
-                ...(envs ? { envs } : {}),
-                onStdout: (output) => { serverOutput += output; },
-                onStderr: (output) => { serverOutput += output; },
-            });
-            await withDeadline(launch, deadlineAt);
-        } catch (error) {
-            throw new Error(`Could not launch the React app. ${commandFailure(error)}`);
-        }
+    const status = await checkPreviewServer(sandbox, host, deadline);
+    if (isWorking(status)) return previewUrl;
+    if (status !== "000") await stopOldServer(sandbox);
 
-        const readyCheckRequest = sandbox.commands.run(readyCheck, {
-            cwd: PROJECT_ROOT,
-            timeoutMs: remainingTimeout(deadlineAt, readyWaitMs + 5_000),
-        });
-        const ready = await withDeadline(readyCheckRequest, deadlineAt);
-        if (ready.stdout.trim() !== "ready") {
-            const output = serverOutput.trim();
-            const diagnostic = ready.stdout.trim() === "timeout"
-                ? "The entry point did not respond within 30 seconds."
-                : ready.stdout.trim().slice(0, DIAGNOSTIC_LOG_LIMIT);
-            throw new Error(`The app preview failed its entry-point check. ${diagnostic}${output ? ` Dev server output: ${output.slice(-1200)}` : " No server output was captured."}`);
+    sendUpdate("Starting the generated React app...");
+    let serverOutput = "";
+    await sandbox.commands.run(`npm run dev -- --host 0.0.0.0 --port ${PREVIEW_PORT} --strictPort`, {
+        cwd: PROJECT_ROOT,
+        background: true,
+        timeoutMs: PREVIEW_TIMEOUT_MS,
+        envs: { __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: host },
+        onStdout: (output) => { serverOutput += output; },
+        onStderr: (output) => { serverOutput += output; },
+    });
+
+    for (let attempt = 0; attempt < READY_CHECK_ATTEMPTS; attempt++) {
+        const status = await checkPreviewServer(sandbox, host, deadline);
+        if (isWorking(status)) return previewUrl;
+        if (status !== "000") {
+            throw new Error(`The preview server returned ${status}. Server output: ${serverOutput.slice(-1200)}`);
         }
+        await Bun.sleep(1000);
     }
 
-    return `https://${previewHost}`;
+    throw new Error(`The preview server did not start in time. Server output: ${serverOutput.slice(-1200)}`);
 }
