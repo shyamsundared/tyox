@@ -10,13 +10,15 @@ function findUserProject(projectId: string, userId: string | undefined) {
     return db.orm.public.Project.where({ id: projectId, userid: userId }).first();
 }
 
-function saveUserMessage(conversationId: string, content: string) {
-    return db.orm.public.Conversation.create({
+async function saveUserMessage(conversationId: string, content: string) {
+    
+        await  db.orm.public.Conversation.create({
         conversation_id: conversationId,
         Content: content,
         From: "USER",
         ConversationType: "TEXT_MESSAGE",
     });
+      
 }
 
 function startSse(res: Response) {
