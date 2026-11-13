@@ -1,10 +1,10 @@
 {
   "name": "agent",
-  "module": "index.ts",
+  "module": "server.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "s3:bucket": "bun run local-s3.ts",
+    "s3:bucket": "bun run scripts/create-local-bucket.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

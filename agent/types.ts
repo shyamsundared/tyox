@@ -1,46 +1,28 @@
-import { GoogleGenAI } from "@google/genai";
-import {z} from "zod";
-const geminiKey = process.env.GEMINI_API_KEY;
+import type { client } from "./config";
 
-export const client = new GoogleGenAI({
-    apiKey: geminiKey,
-});
+type InteractionResponse = Awaited<ReturnType<typeof client.interactions.create>>;
 
-export type InteractionResponse = Awaited<
-    ReturnType<typeof client.interactions.create>
->;
-export type NonStreamingResponse = Extract<
-    InteractionResponse,
-    { steps: unknown }
->;
+// pull the step type out of the gemini sdk so history stays type safe
+export type Step = Extract<InteractionResponse, { steps: unknown }>["steps"][number];
+export type FunctionResultStep = Extract<Step, { type: "function_result" }>;
 
-export type Step = NonStreamingResponse["steps"][number];
-
-
-export type UserInputStep = Extract<
-    Step,
-    { type: "user_input" }
->;
-
-export type FunctionResultStep = Extract<
-    Step,
-    { type: "function_result" }
->;
-
-export type Tooldef = {
+export type ToolDefinition = {
     type: "function";
     name: string;
     description: string;
     parameters: object;
 };
 
-
-export type Tool = {
-    name: string;
-    execute: (args: Record<string, unknown>) => Promise<ToolResult>;
-};
-
 export type ToolResult = {
     success: boolean;
-    output: string;}
+    output: string;
+};
 
+// what we store in the db while the agent waits for the user to answer a question
+export type PendingRun = {
+    question: string;
+    call_id: string;
+    tool_name: string;
+    project_id: string;
+    history: Step[];
+};

@@ -1,13 +1,27 @@
-import type { Readable } from "node:stream";
 import axios from "axios";
-import type express from "express";
+import type { Readable } from "node:stream";
+import type { Request, Response } from "express";
 import { db } from "../../db/db";
-import { formatSseEvent, type AgentClientEvent } from "../../shared/agent-events";
+import { formatSseEvent, parseSseEvent } from "../../shared/agent-events";
+import { streamFromAgent } from "../agent-client";
+import { answerSchema, messageSchema } from "../schemas";
 
-const agentOrigin = process.env.AGENT_ORIGIN ?? "http://localhost:3001";
-const agentApiKey = process.env.AGENT_API_KEY ?? "local-development-agent-key";
+function findUserProject(projectId: string, userId: string | undefined) {
+    return db.orm.public.Project.where({ id: projectId, userid: userId }).first();
+}
 
-function startSse(res: express.Response) {
+async function saveUserMessage(conversationId: string, content: string) {
+    
+        await  db.orm.public.Conversation.create({
+        conversation_id: conversationId,
+        Content: content,
+        From: "USER",
+        ConversationType: "TEXT_MESSAGE",
+    });
+      
+}
+
+function startSse(res: Response) {
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -15,155 +29,130 @@ function startSse(res: express.Response) {
     res.flushHeaders();
 }
 
-function writeSseError(res: express.Response, error: unknown) {
-    if (res.destroyed) return;
-    if (!res.headersSent) startSse(res);
-    const message = error instanceof Error ? error.message : String(error);
+function sendSseError(res: Response, error: unknown) {
+    console.error("Agent stream failed:", error instanceof Error ? error.message : error);
+    if (res.destroyed || res.writableEnded) return;
+
+    const isBusy = axios.isAxiosError(error) && error.response?.status === 409;
+    const message = isBusy
+        ? "The project is busy or this question has already been answered. Wait for the current task, then reload."
+        : "The request was interrupted by a server error.";
     res.write(formatSseEvent({ event: "error", data: { message } }));
     res.end();
 }
 
-function relayAgentStream(stream: Readable, res: express.Response, conversationId: string) {
+// forwards the agent's events to the browser as they arrive, and saves the final
+// messages on the way through so they are still there when the page reloads
+function relayAgentStream(stream: Readable, res: Response, conversationId: string) {
     let buffer = "";
-    let pendingWrites = Promise.resolve();
+    let saves = Promise.resolve();
+    let saveError: unknown;
 
-    const saveMessage = (block: string) => {
-        let eventName = "message";
-        const dataLines: string[] = [];
-        for (const line of block.split(/\r?\n/)) {
-            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-            if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-        }
-        if (!dataLines.length || !["question", "complete"].includes(eventName)) return;
+    const saveAssistantMessage = (block: string) => {
+        const event = parseSseEvent(block);
+        if (event?.event !== "question" && event?.event !== "complete") return;
 
-        try {
-            const event = {
-                event: eventName,
-                data: JSON.parse(dataLines.join("\n")),
-            } as AgentClientEvent;
-            const content = event.event === "question"
-                ? event.data.question
-                : event.event === "complete" ? event.data.message : "";
-            if (!content.trim()) return;
-
-            pendingWrites = pendingWrites.then(() => db.orm.public.Conversation.create({
+        const isQuestion = event.event === "question";
+        // chain the saves so messages always go into the db in order
+        saves = saves.then(async () => {
+            await db.orm.public.Conversation.create({
                 conversation_id: conversationId,
-                Content: content,
+                Content: isQuestion ? event.data.question : event.data.message,
                 From: "ASSISTANT",
                 ConversationType: "TEXT_MESSAGE",
-                toolcall: event.event === "question" ? "QNA" : null,
-            }).then(() => undefined));
-        } catch (error) {
-            pendingWrites = pendingWrites.then(() => Promise.reject(error));
-        }
+                toolcall: isQuestion ? "QNA" : null,
+            });
+        }).catch((error) => {
+            saveError = error;
+        });
     };
 
-    stream.on("data", (chunk: Buffer | string) => {
-        buffer += chunk.toString();
-        const blocks = buffer.split(/\r?\n\r?\n/);
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+        // a chunk can end in the middle of an event, so keep the unfinished part for next time
+        buffer += chunk;
+        const blocks = buffer.split("\n\n");
         buffer = blocks.pop() ?? "";
-        for (const block of blocks) saveMessage(block);
+        blocks.forEach(saveAssistantMessage);
     });
-    stream.on("error", (error: unknown) => writeSseError(res, error));
+    stream.on("error", (error) => sendSseError(res, error));
     stream.on("end", async () => {
-        if (buffer.trim()) saveMessage(buffer);
-        try {
-            await pendingWrites;
-            if (!res.writableEnded) res.end();
-        } catch (error) {
-            writeSseError(res, error);
-        }
+        await saves;
+        if (saveError) sendSseError(res, saveError);
+        else res.end();
     });
     stream.pipe(res, { end: false });
 }
 
-export async function getConversationHistory(req: express.Request<{ projectid: string }>, res: express.Response) {
+export async function getConversationHistory(req: Request<{ projectid: string }>, res: Response) {
     try {
-        const project = await db.orm.public.Project.where({ id: req.params.projectid, userid: req.userId }).first();
+        const project = await findUserProject(req.params.projectid, req.userId);
         if (!project) {
             res.status(404).json({ error: "project not found" });
             return;
         }
+
         const histories = await db.orm.public.ConversationHistory
-            .where({ projectId: req.params.projectid })
+            .where({ projectId: project.id })
             .include("convos", (convos) => convos.orderBy((conversation) => conversation.createdAt.asc()))
             .orderBy((history) => history.createdAt.asc())
             .all();
+
+        // agentState holds the agent's full history, the frontend only needs the question
         res.json(histories.map(({ agentState, ...history }) => {
-            let pendingQuestion = null;
-            if (agentState) {
-                try {
-                    const state = JSON.parse(agentState) as { call_id?: unknown; question?: unknown };
-                    if (typeof state.call_id === "string" && typeof state.question === "string") {
-                        pendingQuestion = {
-                            conversation_id: history.id,
-                            call_id: state.call_id,
-                            question: state.question,
-                        };
-                    }
-                } catch {
-                    // Invalid persisted agent state should not prevent the project history from loading.
-                }
-            }
-            return { ...history, pendingQuestion };
+            if (!agentState) return { ...history, pendingQuestion: null };
+            const { call_id, question } = JSON.parse(agentState);
+            return { ...history, pendingQuestion: { conversation_id: history.id, call_id, question } };
         }));
     } catch (error) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        console.error("Could not load conversation history:", error);
+        res.status(500).json({ error: "could not load the conversation" });
     }
 }
 
-export async function sendMessage(req: express.Request<{ projectid: string }>, res: express.Response) {
-    const { projectid } = req.params;
-    const { message } = req.body;
-    if (typeof message !== "string" || !message.trim()) {
-        res.status(400).json({ error: "message is required" });
+export async function sendMessage(req: Request<{ projectid: string }>, res: Response) {
+    const result = messageSchema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ error: result.error.issues.map((issue) => issue.message).join(". ") });
         return;
     }
+    const { projectid } = req.params;
+    const { message } = result.data;
 
     try {
-        const project = await db.orm.public.Project.where({ id: projectid, userid: req.userId }).first();
+        const project = await findUserProject(projectid, req.userId);
         if (!project) {
             res.status(404).json({ error: "project not found" });
             return;
         }
         const conversation = await db.orm.public.ConversationHistory.create({ projectId: projectid });
-        await db.orm.public.Conversation.create({
-            conversation_id: conversation.id,
-            Content: message,
-            From: "USER",
-            ConversationType: "TEXT_MESSAGE",
-        });
+        await saveUserMessage(conversation.id, message);
 
         startSse(res);
-        const agentResponse = await axios.post(
-            `${agentOrigin}/api/v1/agent/loop`,
-            { conversation_id: conversation.id, message, project_id: projectid },
-            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
-        );
-        relayAgentStream(agentResponse.data, res, conversation.id);
+        const stream = await streamFromAgent("loop", { conversation_id: conversation.id, message, project_id: projectid });
+        relayAgentStream(stream, res, conversation.id);
     } catch (error) {
-        writeSseError(res, error);
+        if (!res.headersSent) startSse(res);
+        sendSseError(res, error);
     }
 }
 
-export async function answerQuestion(req: express.Request<{ projectid: string }>, res: express.Response) {
-    const { projectid } = req.params;
-    const { conversation_id, call_id, answer } = req.body as {
-        conversation_id?: string;
-        call_id?: string;
-        answer?: string;
-    };
-    if (!conversation_id || !call_id || typeof answer !== "string" || !answer.trim()) {
-        res.status(400).json({ error: "conversation_id, call_id, and answer are required" });
+export async function answerQuestion(req: Request<{ projectid: string }>, res: Response) {
+    const result = answerSchema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ error: result.error.issues.map((issue) => issue.message).join(". ") });
         return;
     }
+    const { projectid } = req.params;
+    const { conversation_id, call_id, answer } = result.data;
 
     try {
-        const project = await db.orm.public.Project.where({ id: projectid, userid: req.userId }).first();
+        const project = await findUserProject(projectid, req.userId);
         if (!project) {
             res.status(404).json({ error: "project not found" });
             return;
         }
+        // make sure this conversation really belongs to the project we just checked
         const conversation = await db.orm.public.ConversationHistory
             .where({ id: conversation_id, projectId: projectid })
             .first();
@@ -171,21 +160,13 @@ export async function answerQuestion(req: express.Request<{ projectid: string }>
             res.status(404).json({ error: "conversation not found for this project" });
             return;
         }
-        await db.orm.public.Conversation.create({
-            conversation_id,
-            Content: answer,
-            From: "USER",
-            ConversationType: "TEXT_MESSAGE",
-        });
+        await saveUserMessage(conversation_id, answer);
 
         startSse(res);
-        const agentResponse = await axios.post(
-            `${agentOrigin}/api/v1/agent/resume`,
-            { conversation_id, call_id, answer },
-            { responseType: "stream", headers: { "x-agent-key": agentApiKey } },
-        );
-        relayAgentStream(agentResponse.data, res, conversation_id);
+        const stream = await streamFromAgent("resume", { project_id: projectid, conversation_id, call_id, answer });
+        relayAgentStream(stream, res, conversation_id);
     } catch (error) {
-        writeSseError(res, error);
+        if (!res.headersSent) startSse(res);
+        sendSseError(res, error);
     }
 }

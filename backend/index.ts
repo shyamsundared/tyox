@@ -3,11 +3,15 @@ import express from "express";
 import { routes } from "./routes";
 
 const app = express();
-const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3002";
 
-app.use(cors({ origin: frontendOrigin }));
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3002" }));
 app.use(express.json());
+app.get("/health", (_req, res) => {
+    res.send("ok");
+});
 app.use("/api/v1", routes);
+
+export { app };
 
 if (import.meta.main) {
     const port = Number(process.env.PORT ?? 3000);
@@ -15,7 +19,3 @@ if (import.meta.main) {
         console.log(`Backend listening on port ${port}`);
     });
 }
-
-app.get("/health", (_req, res) => res.status(200).send("ok"));
-
-export { app };

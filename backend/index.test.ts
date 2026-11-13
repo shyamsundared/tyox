@@ -2,13 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from "bun
 import { once } from "node:events";
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
+import jwt from "jsonwebtoken";
 
 const project = { id: "project-1", userid: "user-1", title: "Demo", initialPrompt: "Build a page" };
 const user = { id: "user-1", username: "shyam", password: "hashed" };
 const conversation = { id: "conversation-1", projectId: project.id };
 
 let projectExists = true;
-let userExists = true;
 let conversationExists = true;
 let requestedUserId = user.id;
 let nextAgentEvents = "event: complete\ndata: {\"message\":\"Done\"}\n\n";
@@ -19,7 +19,7 @@ const db = {
     orm: {
         public: {
             User: {
-                where: () => ({ first: async () => userExists ? user : undefined }),
+                where: () => ({ first: async () => user }),
                 create: async () => user,
             },
             Project: {
@@ -45,9 +45,6 @@ const db = {
                     return input;
                 },
             },
-            Todo: {
-                where: () => ({ orderBy: () => ({ all: async () => [] }) }),
-            },
         },
     },
 };
@@ -67,7 +64,6 @@ mock.module("axios", () => ({
 }));
 
 process.env.JWT_SECRET = "test-secret-that-is-long-enough";
-const { createAccessToken } = await import("./middleware/authmiddleware");
 const { app } = await import("./index");
 let server: ReturnType<typeof app.listen>;
 let baseUrl: string;
@@ -84,13 +80,12 @@ beforeAll(async () => {
 afterAll(async () => {
     if (!serverStarted) return;
     await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error: Error | undefined) => error ? reject(error) : resolve());
     });
 });
 
 beforeEach(() => {
     projectExists = true;
-    userExists = true;
     conversationExists = true;
     nextAgentEvents = "event: complete\ndata: {\"message\":\"Done\"}\n\n";
     savedMessages.length = 0;
@@ -98,8 +93,8 @@ beforeEach(() => {
     requestedUserId = user.id;
 });
 
-const authHeaders = (additional: Record<string, string> = {}) => ({
-    authorization: `Bearer ${createAccessToken(requestedUserId)}`,
+const authHeaders = async (additional: Record<string, string> = {}) => ({
+    authorization: `Bearer ${jwt.sign({ sub: requestedUserId }, process.env.JWT_SECRET!, { algorithm: "HS256", expiresIn: "24h" })}`,
     ...additional,
 });
 
@@ -112,7 +107,7 @@ describe("authentication", () => {
 
     it("rejects an expired bearer token", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
-            headers: { authorization: `Bearer ${createAccessToken(user.id, 0)}` },
+            headers: { authorization: `Bearer ${jwt.sign({ sub: user.id, exp: 0 }, process.env.JWT_SECRET!, { algorithm: "HS256" })}` },
         });
         expect(response.status).toBe(401);
     });
@@ -122,7 +117,7 @@ describe("project API", () => {
     it("rejects an invalid project request before creating a project", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ user_id: "", title: "", initialPrompt: "" }),
         });
 
@@ -133,7 +128,7 @@ describe("project API", () => {
     it("creates a project and initializes its E2B preview", async () => {
         const response = await fetch(`${baseUrl}/api/v1/projects`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ title: " Demo ", initialPrompt: " Build a page " }),
         });
         const body = await response.json() as { id: string; previewUrl: string; title: string };
@@ -145,7 +140,7 @@ describe("project API", () => {
 
     it("does not let one user list another user's projects", async () => {
         requestedUserId = "another-user";
-        const response = await fetch(`${baseUrl}/api/v1/users/${user.id}/projects`, { headers: authHeaders() });
+        const response = await fetch(`${baseUrl}/api/v1/users/${user.id}/projects`, { headers: await authHeaders() });
         expect(response.status).toBe(403);
     });
 
@@ -153,7 +148,7 @@ describe("project API", () => {
         requestedUserId = "another-user";
         const response = await fetch(`${baseUrl}/api/v1/${project.id}`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ message: "Change the page" }),
         });
 
@@ -172,7 +167,7 @@ describe("conversation API", () => {
 
         const response = await fetch(`${baseUrl}/api/v1/${project.id}`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ message: "Build a page" }),
         });
         const stream = await response.text();
@@ -190,7 +185,7 @@ describe("conversation API", () => {
     it("stores an answer and resumes the matching conversation", async () => {
         const response = await fetch(`${baseUrl}/api/v1/${project.id}/answer`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({
                 conversation_id: conversation.id,
                 call_id: "question-1",
@@ -207,7 +202,7 @@ describe("conversation API", () => {
         ]));
         expect(agentRequests[0]).toEqual({
             url: "http://localhost:3001/api/v1/agent/resume",
-            body: { conversation_id: conversation.id, call_id: "question-1", answer: "Use a dark theme" },
+            body: { project_id: project.id, conversation_id: conversation.id, call_id: "question-1", answer: "Use a dark theme" },
         });
     });
 
@@ -215,7 +210,7 @@ describe("conversation API", () => {
         conversationExists = false;
         const response = await fetch(`${baseUrl}/api/v1/another-project/answer`, {
             method: "POST",
-            headers: authHeaders({ "content-type": "application/json" }),
+            headers: await authHeaders({ "content-type": "application/json" }),
             body: JSON.stringify({ conversation_id: conversation.id, call_id: "question-1", answer: "Okay" }),
         });
 
