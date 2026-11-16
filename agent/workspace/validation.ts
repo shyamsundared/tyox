@@ -24,11 +24,25 @@ export async function runTestsAndBuild(projectId: string, sendUpdate: (message: 
     const sandbox = await getProjectSandbox(projectId);
     await installDependencies(sandbox, projectId, deadline);
 
+    // run the build even when the tests fail, so the model gets every error in one repair prompt.
+    // stopping at the first failure hid build errors until the only repair attempt was used up
+    const failures: string[] = [];
+
     sendUpdate("Running project tests...");
-    await runCheck(sandbox, projectId, "Project tests", "./node_modules/.bin/vitest run src", deadline);
+    try {
+        await runCheck(sandbox, projectId, "Project tests", "./node_modules/.bin/vitest run src", deadline);
+    } catch (error) {
+        failures.push(errorMessage(error));
+    }
 
     sendUpdate("Building the project...");
-    await runCheck(sandbox, projectId, "Project build", "npm run build", deadline);
+    try {
+        await runCheck(sandbox, projectId, "Project build", "npm run build", deadline);
+    } catch (error) {
+        failures.push(errorMessage(error));
+    }
+
+    if (failures.length > 0) throw new Error(failures.join("\n\n"));
 }
 
 // needs the preview server running because playwright opens the real app

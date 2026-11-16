@@ -1,6 +1,6 @@
 import type { AgentClientEvent } from "../shared/agent-events";
 import { client, MODEL, RUN_TIMEOUT_MS } from "./config";
-import { trimHistory } from "./context";
+import { trimHistory, withStartingFiles } from "./context";
 import { savePendingRun } from "./pending-run";
 import { SYSTEM_PROMPT } from "./prompt";
 import { ALL_TOOLS, BASH_TOOL, QUESTION_TOOL, READ_TOOL, WRITE_TOOL } from "./tools/definitions";
@@ -21,7 +21,8 @@ const GEMINI_TIMEOUT_MS = 120_000;
 type Emit = (event: AgentClientEvent) => void;
 
 export async function startAgent(message: string, conversationId: string, projectId: string, emit: Emit) {
-    const history: Step[] = [{ type: "user_input", content: [{ type: "text", text: message }] }];
+    const text = await withStartingFiles(message, projectId);
+    const history: Step[] = [{ type: "user_input", content: [{ type: "text", text }] }];
     await timed(projectId, "whole run", () => runLoop(history, conversationId, projectId, emit));
 }
 
