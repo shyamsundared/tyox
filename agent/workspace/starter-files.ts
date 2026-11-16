@@ -60,6 +60,7 @@ import viteConfig from "./vite.config";
 export default mergeConfig(viteConfig, defineConfig({
   test: {
     environment: "jsdom",
+    globals: true,
     setupFiles: ["./src/test/setup.ts"],
     clearMocks: true,
   },
@@ -106,9 +107,13 @@ test("the generated app renders visible content", async ({ page }) => {
             noEmit: true,
             jsx: "react-jsx",
             strict: true,
-            noUnusedLocals: true,
-            noUnusedParameters: true,
+            // tidiness rules, not correctness rules. models often leave an unused import
+            // (like `import React`), and that shouldn't fail the whole build
+            noUnusedLocals: false,
+            noUnusedParameters: false,
             noFallthroughCasesInSwitch: true,
+            // lets tsc see vitest's global test(), expect() and describe()
+            types: ["vitest/globals"],
         },
         include: ["src"],
     }, null, 2) + "\n",
@@ -144,7 +149,9 @@ describe("App", () => {
   });
 });
 `,
-    "src/index.css": `:root {
+    "src/index.css": `@import "tailwindcss";
+
+:root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #20231f;
   background: #f4f1ea;
