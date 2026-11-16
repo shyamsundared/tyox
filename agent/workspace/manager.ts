@@ -1,6 +1,6 @@
 import { Sandbox, SandboxNotFoundError } from "e2b";
 import { PROJECT_ROOT } from "../config";
-import { timeLeft } from "../utils";
+import { timed, timeLeft } from "../utils";
 import { reactStarterFiles } from "./starter-files";
 import { restoreProjectSnapshot } from "./storage";
 
@@ -14,7 +14,7 @@ const projectSandboxes = new Map<string, Sandbox>();
 async function setupProjectFiles(sandbox: Sandbox, projectId: string) {
     await sandbox.commands.run(`mkdir -p ${PROJECT_ROOT}`);
 
-    const restored = await restoreProjectSnapshot(sandbox, projectId, Date.now() + 60_000);
+    const restored = await timed(projectId, "s3 restore", () => restoreProjectSnapshot(sandbox, projectId, Date.now() + 60_000));
     if (restored) return;
 
     for (const [path, content] of Object.entries(reactStarterFiles)) {
@@ -69,12 +69,12 @@ export async function getProjectSandbox(projectId: string): Promise<Sandbox> {
         }
     }
 
-    let sandbox = await connectToExistingSandbox(projectId);
+    let sandbox = await timed(projectId, "sandbox reconnect", () => connectToExistingSandbox(projectId));
     if (sandbox) {
         const hasFiles = await sandbox.files.exists(`${PROJECT_ROOT}/package.json`);
         if (!hasFiles) await setupProjectFiles(sandbox, projectId);
     } else {
-        sandbox = await createSandbox(projectId);
+        sandbox = await timed(projectId, "sandbox create (includes file setup)", () => createSandbox(projectId));
     }
 
     await sandbox.setTimeout(SANDBOX_TIMEOUT_MS);
@@ -83,12 +83,14 @@ export async function getProjectSandbox(projectId: string): Promise<Sandbox> {
 }
 
 // node_modules isn't saved in the s3 snapshot, so a restored project has to install again
-export async function installDependencies(sandbox: Sandbox, deadline: number) {
+export async function installDependencies(sandbox: Sandbox, projectId: string, deadline: number) {
     const check = await sandbox.commands.run(CHECK_INSTALLED, { cwd: PROJECT_ROOT });
     if (check.stdout.trim() === "installed") return;
 
-    await sandbox.commands.run("npm install --no-audit --no-fund --package-lock=false --legacy-peer-deps", {
-        cwd: PROJECT_ROOT,
-        timeoutMs: timeLeft(deadline, INSTALL_TIMEOUT_MS),
-    });
+    await timed(projectId, "npm install", () =>
+        sandbox.commands.run("npm install --no-audit --no-fund --package-lock=false --legacy-peer-deps", {
+            cwd: PROJECT_ROOT,
+            timeoutMs: timeLeft(deadline, INSTALL_TIMEOUT_MS),
+        }),
+    );
 }

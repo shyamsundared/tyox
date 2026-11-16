@@ -94,7 +94,7 @@ app.post("/api/v1/agent/projects/:projectId/initialize", async (req, res) => {
     const deadline = Date.now() + RUN_TIMEOUT_MS;
     try {
         const sandbox = await getProjectSandbox(projectId);
-        await installDependencies(sandbox, deadline);
+        await installDependencies(sandbox, projectId, deadline);
         await saveProjectSnapshot(sandbox, projectId, deadline);
         const previewUrl = await startProjectPreview(projectId, () => {}, deadline);
         res.json({ previewUrl });

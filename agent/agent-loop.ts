@@ -6,7 +6,7 @@ import { SYSTEM_PROMPT } from "./prompt";
 import { ALL_TOOLS, BASH_TOOL, QUESTION_TOOL, READ_TOOL, WRITE_TOOL } from "./tools/definitions";
 import { runTool } from "./tools/executor";
 import type { FunctionResultStep, PendingRun, Step } from "./types";
-import { errorMessage, timeLeft } from "./utils";
+import { errorMessage, timed, timeLeft } from "./utils";
 import { getProjectSandbox } from "./workspace/manager";
 import { startProjectPreview } from "./workspace/preview";
 import { isStorageEnabled, saveProjectSnapshot } from "./workspace/storage";
@@ -22,7 +22,7 @@ type Emit = (event: AgentClientEvent) => void;
 
 export async function startAgent(message: string, conversationId: string, projectId: string, emit: Emit) {
     const history: Step[] = [{ type: "user_input", content: [{ type: "text", text: message }] }];
-    await runLoop(history, conversationId, projectId, emit);
+    await timed(projectId, "whole run", () => runLoop(history, conversationId, projectId, emit));
 }
 
 // the model is waiting for the result of its Qna call, so the user's answer goes in as that result
@@ -33,7 +33,9 @@ export async function resumeAgent(pending: PendingRun, answer: string, conversat
         call_id: pending.call_id,
         result: { output: answer },
     };
-    await runLoop([...pending.history, answerStep], conversationId, pending.project_id, emit);
+    await timed(pending.project_id, "whole run (resumed)", () =>
+        runLoop([...pending.history, answerStep], conversationId, pending.project_id, emit),
+    );
 }
 
 async function runLoop(history: Step[], conversationId: string, projectId: string, emit: Emit) {
@@ -45,7 +47,7 @@ async function runLoop(history: Step[], conversationId: string, projectId: strin
     for (let turn = 1; turn <= MAX_TURNS; turn++) {
         sendUpdate(turn === 1 ? "Planning the requested page..." : "Reviewing the project...");
         history = trimHistory(history);
-        const steps = await askGemini(history, sendUpdate, deadline);
+        const steps = await timed(projectId, `gemini call (turn ${turn})`, () => askGemini(history, sendUpdate, deadline));
 
         for (const step of steps) {
             history.push(step);
@@ -76,7 +78,7 @@ async function runLoop(history: Step[], conversationId: string, projectId: strin
                 if (toolCalls > MAX_TOOL_CALLS) throw new Error(`Agent stopped after ${MAX_TOOL_CALLS} tool calls without finishing.`);
 
                 sendUpdate(describeTool(step.name, step.arguments));
-                const output = await runTool(step.name, step.arguments, projectId, deadline);
+                const output = await timed(projectId, `tool ${step.name}`, () => runTool(step.name, step.arguments, projectId, deadline));
                 if (!output.success) sendUpdate("That action failed, the agent is checking the error...");
 
                 history.push({ type: "function_result", name: step.name, call_id: step.id, result: { output } } as FunctionResultStep);
@@ -139,7 +141,7 @@ async function askGemini(history: Step[], sendUpdate: (message: string) => void,
 // tests and build first, then the preview, then the browser checks against that preview
 async function checkProject(projectId: string, sendUpdate: (message: string) => void, deadline: number): Promise<string> {
     await runTestsAndBuild(projectId, sendUpdate, deadline);
-    const previewUrl = await startProjectPreview(projectId, sendUpdate, deadline);
+    const previewUrl = await timed(projectId, "preview start", () => startProjectPreview(projectId, sendUpdate, deadline));
     await runBrowserChecks(projectId, sendUpdate, deadline);
     return previewUrl;
 }
@@ -152,7 +154,7 @@ async function saveSnapshot(projectId: string, sendUpdate: (message: string) => 
     }
     try {
         const sandbox = await getProjectSandbox(projectId);
-        await saveProjectSnapshot(sandbox, projectId, deadline);
+        await timed(projectId, "s3 save", () => saveProjectSnapshot(sandbox, projectId, deadline));
         sendUpdate("Saved the project to S3.");
         return null;
     } catch (error) {
