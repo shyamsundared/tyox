@@ -16,7 +16,7 @@ const readArgs = z.object({ path: z.string().min(1) });
 const writeArgs = z.object({ path: z.string().min(1), content: z.string() });
 
 // stops the model from reading or writing outside the project, like ../../etc/passwd
-function safePath(filePath: string): string {
+export function safePath(filePath: string): string {
     const fullPath = posix.resolve(PROJECT_ROOT, filePath);
     const isAbsolute = filePath.includes("\\") || posix.isAbsolute(filePath);
     if (isAbsolute || !fullPath.startsWith(`${PROJECT_ROOT}/`)) {

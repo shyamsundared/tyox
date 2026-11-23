@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "s3:bucket": "bun run scripts/create-local-bucket.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",

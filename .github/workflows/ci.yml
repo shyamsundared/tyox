@@ -43,5 +43,8 @@ jobs:
       - name: Test backend
         run: bun run test:backend
 
+      - name: Test agent
+        run: bun run test:agent
+
       - name: Build frontend
         run: bun run build
