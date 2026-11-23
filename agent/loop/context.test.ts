@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { trimHistory } from "./context";
-import { WRITE_TOOL } from "./tools/definitions";
-import type { Step } from "./types";
+import { WRITE_TOOL } from "../tools/definitions";
+import type { Step } from "../types";
 
 // small builders so each test reads like a conversation. the sdk's Step type is a large union,
 // so we build plain objects and cast them once here

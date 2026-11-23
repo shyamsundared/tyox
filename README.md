@@ -24,7 +24,7 @@ There are three services. See [architecture.md](architecture.md) for more detail
 - `backend` - auth, projects and chat history. Forwards agent events to the browser
 - `agent` - runs the agent loop and talks to Gemini and E2B. Only the backend can call it
 
-The main code to read is [agent/agent-loop.ts](agent/agent-loop.ts).
+The main code to read is [agent/loop/agent-loop.ts](agent/loop/agent-loop.ts).
 
 ## Running locally
 

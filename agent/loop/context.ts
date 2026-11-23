@@ -1,7 +1,7 @@
-import { PROJECT_ROOT } from "./config";
-import { WRITE_TOOL } from "./tools/definitions";
-import type { Step } from "./types";
-import { getProjectSandbox } from "./workspace/manager";
+import { PROJECT_ROOT } from "../config";
+import { WRITE_TOOL } from "../tools/definitions";
+import type { Step } from "../types";
+import { getProjectSandbox } from "../workspace/manager";
 
 // the files the model edits in almost every run. sending them with the request
 // saves a Read_File turn, and each turn costs 15-30s of gemini time

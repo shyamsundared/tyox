@@ -1,5 +1,5 @@
-import { db } from "../db/db";
-import type { PendingRun } from "./types";
+import { db } from "../../db/db";
+import type { PendingRun } from "../types";
 
 export async function savePendingRun(conversationId: string, pending: PendingRun | null) {
     await db.orm.public.ConversationHistory

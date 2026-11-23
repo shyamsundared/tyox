@@ -1,16 +1,16 @@
-import type { AgentClientEvent } from "../shared/agent-events";
-import { client, MODEL, RUN_TIMEOUT_MS } from "./config";
+import type { AgentClientEvent } from "../../shared/agent-events";
+import { client, MODEL, RUN_TIMEOUT_MS } from "../config";
 import { trimHistory, withStartingFiles } from "./context";
 import { savePendingRun } from "./pending-run";
 import { SYSTEM_PROMPT } from "./prompt";
-import { ALL_TOOLS, BASH_TOOL, QUESTION_TOOL, READ_TOOL, WRITE_TOOL } from "./tools/definitions";
-import { runTool } from "./tools/executor";
-import type { FunctionResultStep, PendingRun, Step } from "./types";
-import { errorMessage, timed, timeLeft } from "./utils";
-import { getProjectSandbox } from "./workspace/manager";
-import { startProjectPreview } from "./workspace/preview";
-import { isStorageEnabled, saveProjectSnapshot } from "./workspace/storage";
-import { runBrowserChecks, runTestsAndBuild } from "./workspace/validation";
+import { ALL_TOOLS, BASH_TOOL, QUESTION_TOOL, READ_TOOL, WRITE_TOOL } from "../tools/definitions";
+import { runTool } from "../tools/executor";
+import type { FunctionResultStep, PendingRun, Step } from "../types";
+import { errorMessage, timed, timeLeft } from "../utils";
+import { getProjectSandbox } from "../workspace/manager";
+import { startProjectPreview } from "../workspace/preview";
+import { isStorageEnabled, saveProjectSnapshot } from "../workspace/storage";
+import { runBrowserChecks, runTestsAndBuild } from "../workspace/validation";
 
 // the time limit is the main protection, these catch a model that keeps going without finishing
 const MAX_TURNS = 16;
