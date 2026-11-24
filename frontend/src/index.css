@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* Lovable-inspired palette (from a third-party token listing, not an official spec).
+   Defining them here gives us classes like bg-cream and text-ink. */
+@theme {
+  --color-cream: #f7f4ed;    /* page and panel background */
+  --color-offwhite: #fcfbf8; /* cards, bubbles, preview */
+  --color-line: #eceae4;     /* borders and quiet fills */
+  --color-ink: #1c1c1c;      /* main text and primary buttons */
+  --color-muted: #5f5f5d;    /* secondary text */
+}
+
+body {
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+}

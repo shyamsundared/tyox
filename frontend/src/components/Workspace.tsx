@@ -153,19 +153,19 @@ export function Workspace({ account, onSignOut }: Props) {
       />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
-          <h2 className="truncate font-semibold text-zinc-900">{projectTitle}</h2>
+        <header className="flex items-center justify-between border-b border-line bg-offwhite px-4 py-3">
+          <h2 className="truncate font-semibold text-ink">{projectTitle}</h2>
           {/* on big screens chat and preview are side by side, so the tabs are only for phones */}
           {projectId && (
-            <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 text-sm lg:hidden">
-              <button type="button" className={`rounded-md px-3 py-1 ${activeView === "chat" ? "bg-white shadow-sm" : "text-zinc-500"}`} onClick={() => setActiveView("chat")}>Chat</button>
-              <button type="button" className={`rounded-md px-3 py-1 disabled:opacity-50 ${activeView === "preview" ? "bg-white shadow-sm" : "text-zinc-500"}`} disabled={!previewUrl} onClick={() => setActiveView("preview")}>Preview</button>
+            <div className="flex gap-1 rounded-lg bg-line p-1 text-sm lg:hidden">
+              <button type="button" className={`rounded-md px-3 py-1 ${activeView === "chat" ? "bg-offwhite shadow-sm" : "text-muted"}`} onClick={() => setActiveView("chat")}>Chat</button>
+              <button type="button" className={`rounded-md px-3 py-1 disabled:opacity-50 ${activeView === "preview" ? "bg-offwhite shadow-sm" : "text-muted"}`} disabled={!previewUrl} onClick={() => setActiveView("preview")}>Preview</button>
             </div>
           )}
         </header>
 
         {error && (
-          <div role="alert" className="flex justify-between bg-red-50 px-4 py-2 text-sm text-red-700">
+          <div role="alert" className="flex justify-between bg-red-50 px-4 py-2 text-sm text-red-600">
             <span>{error}</span>
             <button type="button" onClick={() => setError("")} aria-label="Dismiss error">×</button>
           </div>
@@ -174,7 +174,7 @@ export function Workspace({ account, onSignOut }: Props) {
         {projectId ? (
           <main className="flex-1 flex min-h-0">
             <ChatPanel
-              className={`flex-1 lg:flex lg:max-w-md lg:border-r lg:border-zinc-200 ${activeView === "chat" ? "flex" : "hidden"}`}
+              className={`flex-1 lg:flex lg:max-w-md lg:border-r lg:border-line ${activeView === "chat" ? "flex" : "hidden"}`}
               messages={messages}
               pending={pending}
               busy={busy}
@@ -187,10 +187,10 @@ export function Workspace({ account, onSignOut }: Props) {
             />
           </main>
         ) : (
-          <main className="flex-1 flex flex-col items-center justify-center gap-4 bg-zinc-50 p-4 text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-zinc-900">What will you build today?</h2>
-            <p className="text-zinc-500">Start a project and turn your idea into a working React app.</p>
-            <button type="button" className="rounded-lg bg-orange-600 px-5 py-2 font-medium text-white hover:bg-orange-700" onClick={() => setShowCreateForm(true)}>Start a project</button>
+          <main className="flex-1 flex flex-col items-center justify-center gap-4 bg-cream p-4 text-center">
+            <h2 className="text-3xl font-bold tracking-tight text-ink">What will you build today?</h2>
+            <p className="text-muted">Start a project and turn your idea into a working React app.</p>
+            <button type="button" className="rounded-lg bg-ink px-5 py-2 font-medium text-offwhite hover:bg-ink/85" onClick={() => setShowCreateForm(true)}>Start a project</button>
           </main>
         )}
       </div>
